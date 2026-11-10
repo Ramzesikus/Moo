@@ -147,7 +147,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '8';
+const VERSION = '9';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -181,7 +181,7 @@ report('open', {});
 // ================= LEVELS =================
 function levelParams(N) {
   const speed = N <= 20 ? Math.min(9, 3.5 + 0.35 * (N - 1)) : Math.min(11, 9 + 0.05 * (N - 20));
-  const length = Math.round(Math.min(60 + 20 * (N - 1), speed * 30));
+  const length = Math.round(Math.min(60 + 20 * (N - 1), speed * 29.6));
   const gap = Math.max(0.9, 2.6 - 0.12 * (N - 1));
   const maxHold = Math.min(3.5, 0.8 + 0.2 * (N - 1));
   const types = N === 1 ? ['fence', 'bar'] : N === 2 ? ['fence', 'bar', 'ditch'] : ['fence', 'bar', 'ditch', 'roof'];
@@ -189,7 +189,7 @@ function levelParams(N) {
   const lives = Math.max(3, Math.round(15 - 12 * (N - 1) / 19));
   return { N, speed, length, gap, maxHold, types, combo, lives };
 }
-const BTN_PER_DAY = 3;
+const BTN_PER_DAY = 2;
 function btnQuota() { const d = new Date(); const today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); let q = null; try { q = JSON.parse(localStorage.getItem('moo_btn') || 'null'); } catch(e){} if (!q || q.d !== today) q = { d: today, n: 0 }; return q; }
 function btnLeft() { return Math.max(0, BTN_PER_DAY - btnQuota().n); }
 function useBtn() { const q = btnQuota(); q.n++; try { localStorage.setItem('moo_btn', JSON.stringify(q)); } catch(e){} }
@@ -447,14 +447,49 @@ function makeObs(type, len) {
 }
 const flagC = document.createElement('canvas'); flagC.width = 256; flagC.height = 32; { const x = flagC.getContext('2d'); for (let i = 0; i < 32; i++) for (let j = 0; j < 4; j++) { x.fillStyle = (i + j) % 2 ? '#2d2a32' : '#ffffff'; x.fillRect(i * 8, j * 8, 8, 8); } }
 const flagT = new T.CanvasTexture(flagC); flagT.magFilter = T.NearestFilter;
+const archC = document.createElement('canvas'); archC.width = 256; archC.height = 16; { const x = archC.getContext('2d'); for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#ffffff' : '#e2504a'; x.fillRect(i * 32, 0, 32, 16); } }
+const archT = new T.CanvasTexture(archC);
+const finC = document.createElement('canvas'); finC.width = 512; finC.height = 128; { const x = finC.getContext('2d'); x.fillStyle = '#2d2a32'; x.fillRect(0, 0, 512, 128); x.fillStyle = '#e2504a'; x.fillRect(8, 8, 496, 112); x.fillStyle = '#ffffff'; x.font = '900 86px system-ui, -apple-system, Arial, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('ФИНИШ', 256, 70); }
+const finT = new T.CanvasTexture(finC);
+const chkC = document.createElement('canvas'); chkC.width = 64; chkC.height = 64; { const x = chkC.getContext('2d'); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { x.fillStyle = (i + j) % 2 ? '#2d2a32' : '#ffffff'; x.fillRect(i * 16, j * 16, 16, 16); } }
+const CONF = ['#e2504a', '#f4c430', '#3b6fd8', '#7bb661', '#ff8fc8', '#ffffff'];
+const confG = new T.PlaneGeometry(0.12, 0.07), confM = CONF.map(c => new T.MeshBasicMaterial({ color: c, side: T.DoubleSide }));
 function makeFinish() {
-  const g = new T.Group();
-  for (const s of [-1, 1]) part(postG, toon('#e2504a'), g, [0, 0, s * (TW / 2 + 0.05)], [1.2, 2.3, 1.2], 'obj');
-  const ban = new T.Mesh(new T.BoxGeometry(0.08, 0.36, TW + 0.3), [toon('#2d2a32'), toon('#2d2a32'), toon('#2d2a32'), toon('#2d2a32'), new T.MeshToonMaterial({ map: flagT, gradientMap: gm }), new T.MeshToonMaterial({ map: flagT, gradientMap: gm })]);
-  ban.position.set(0, 2.1, 0); ban.renderOrder = 1; g.add(ban);
-  const ft = flagT.clone(); ft.needsUpdate = true; ft.wrapS = T.RepeatWrapping; ft.repeat.set(1, 1);
-  const line = new T.Mesh(new T.BoxGeometry(0.35, 0.012, TW), new T.MeshToonMaterial({ map: ft, gradientMap: gm })); line.position.set(0, 0.006, 0); line.renderOrder = -1; g.add(line);
+  const g = new T.Group(), HW = TW / 2 + 0.6, AH = 3.4;
+  // inflatable arch: half-ellipse tube
+  class Arc extends T.Curve { getPoint(t) { const a = Math.PI * t; return new T.Vector3(0, AH * Math.sin(a), -HW * Math.cos(a)); } }
+  const at = archT.clone(); at.needsUpdate = true; at.wrapS = T.RepeatWrapping; at.repeat.set(4, 1);
+  part(new T.TubeGeometry(new Arc(), 48, 0.24, 12, false), new T.MeshToonMaterial({ map: at, gradientMap: gm }), g, [0, 0, 0], null, 'obj');
+  for (const s of [-1, 1]) part(new T.CylinderGeometry(0.3, 0.34, 0.16, 16), toon('#2d2a32'), g, [0, 0.08, s * HW], null, 'obj');
+  // banner with text, facing the camera (-x)
+  const bn = new T.Mesh(new T.PlaneGeometry(2.5, 0.62), new T.MeshBasicMaterial({ map: finT, side: T.DoubleSide })); bn.position.set(0, 2.3, 0); bn.renderOrder = 2; g.add(bn); g.userData.bn = bn;
+  // checkered ground strip, 2 m along the track
+  const ct = new T.CanvasTexture(chkC); ct.magFilter = T.NearestFilter; ct.wrapS = ct.wrapT = T.RepeatWrapping; ct.repeat.set(2.5, TW / 0.8);
+  const line = new T.Mesh(new T.BoxGeometry(2, 0.012, TW), new T.MeshToonMaterial({ map: ct, gradientMap: gm })); line.position.set(0, 0.006, 0); line.renderOrder = -1; g.add(line);
+  // two checkered flags on poles beside the arch
+  g.userData.flags = [];
+  for (const s of [-1, 1]) {
+    const z = s * (HW + 0.5);
+    part(postG, toon('#8a8690'), g, [0.6, 0, z], [0.7, 2.3, 0.7], 'obj');
+    const ft = new T.CanvasTexture(chkC); ft.magFilter = T.NearestFilter;
+    const fg = new T.PlaneGeometry(0.9, 0.6, 10, 1); fg.translate(0.45, 0, 0);
+    const f = new T.Mesh(fg, new T.MeshToonMaterial({ map: ft, gradientMap: gm, side: T.DoubleSide })); f.position.set(0.6, 2.0, z); f.rotation.y = s > 0 ? Math.PI / 2 : -Math.PI / 2; f.renderOrder = 1; g.add(f);
+    f.userData.base = Float32Array.from(fg.attributes.position.array); g.userData.flags.push(f);
+  }
+  g.userData.conf = [];
   scene.add(g); return g;
+}
+function animFinish(g, t, dt) {
+  const bn = g.userData.bn; if (bn) bn.rotation.y = Math.atan2(camBase.x - g.position.x, camBase.z) ;
+  for (const f of g.userData.flags) { const p = f.geometry.attributes.position, b = f.userData.base; for (let i = 0; i < p.count; i++) { const x = b[i * 3]; p.array[i * 3 + 2] = Math.sin(x * 5 - t * 7) * 0.12 * x; } p.needsUpdate = true; }
+  for (const c of g.userData.conf) { c.vy -= 5 * dt; c.vx *= 0.985; c.vz *= 0.985; if (c.vy < -1.2) c.vy = -1.2; c.m.position.x += c.vx * dt; c.m.position.y += c.vy * dt; c.m.position.z += c.vz * dt; c.m.rotation.x += c.rx * dt; c.m.rotation.y += c.ry * dt; if (c.m.position.y < 0.02) { c.m.position.y = 0.02; c.vx = c.vz = c.vy = c.rx = c.ry = 0; } }
+}
+function burstConfetti(g) {
+  for (let i = 0; i < 110; i++) {
+    const m = new T.Mesh(confG, confM[i % confM.length]); const s = i % 2 ? 1 : -1;
+    m.position.set(0, 3.0 + Math.random() * 0.3, s * (TW / 2 + 0.4)); m.rotation.set(Math.random() * 6, Math.random() * 6, 0); m.renderOrder = 3; g.add(m);
+    g.userData.conf.push({ m, vx: 1 + Math.random() * 4, vy: 1.5 + Math.random() * 3, vz: -s * (0.5 + Math.random() * 2.2), rx: (Math.random() - 0.5) * 14, ry: (Math.random() - 0.5) * 14 });
+  }
 }
 function disposeObs(g) { scene.remove(g); g.traverse(o => { if (o.geometry && o.geometry !== postG && o.geometry !== railG) o.geometry.dispose(); }); if (g.userData.wt) g.userData.wt.dispose(); }
 
@@ -465,7 +500,7 @@ let mode = 'voice', ctrlState = 'none';
 let G = null; // game state
 function newState(N) {
   const P = levelParams(N || 1);
-  return { P, level: P.N, t: 0, speed: P.speed, dist: 0, lives: P.lives, finish: false, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: 0, nextAt: P.speed * 3, script: [], passed: 0, over: false, shake: 0, dust: [],
+  return { P, level: P.N, t: 0, speed: P.speed, dist: 0, lives: P.lives, finish: false, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], won: -1, tf: 0, nextSpawn: 0, nextAt: P.speed * 3, script: [], passed: 0, over: false, shake: 0, dust: [],
     y: 0, vy: 0, c: 0, cv: 0, air: 0, av: 0, tilt: 0, tv: 0, ph: 0, m: 0, mv: 0, ctl: 'none', glide: 0, bell: 0, bv: 0,
     tA: [0,0,0,0,0], tV: [0,0,0,0,0], tZ: [0,0,0,0,0], tZV: [0,0,0,0,0], look: 0, lookT: 4, hy: 0, hyv: 0, ears: [0, 0], earsV: [0, 0] };
 }
@@ -481,7 +516,7 @@ function pose(st, dt) {
     th = th + (tth - th) * a; k = k + (tk - k) * a; l.hip.rotation.z = th; l.knee.rotation.z = -k; });
   U.torso.position.y = legV(0.9 * c, 1.8 * c) - HIPY + st.y / S + Math.abs(Math.sin(st.ph)) * 0.03 * (1 - c) * (1 - a);
   U.torso.rotation.z = st.tilt; U.neckG.rotation.z = -1.0 * c + 0.15 * a * (st.vy > 0 ? 1 : -0.5);
-  U.head.rotation.set(0, st.hy, st.m * 0.25 - 0.05 + Math.sin(st.ph * 2) * 0.03 * (1 - a) - 0.2 * c);
+  U.head.rotation.set(0, st.won >= 0 ? 0 : st.hy, st.m * 0.25 - 0.05 + (st.won >= 0 ? 0.55 * Math.min(1, st.won * 3) : 0) + Math.sin(st.ph * 2) * 0.03 * (1 - a) - 0.2 * c);
   U.mouth.scale.set(0.45 + st.m * 0.25, 0.05 + st.m * 0.95, 1);
   for (let k2 = 0; k2 < 2; k2++) { const e = U.ears[k2]; st.earsV[k2] += (-60 * st.ears[k2] - 5 * st.earsV[k2]) * dt - st.vy * 0.2 * dt * (k2 ? 1 : -1); st.ears[k2] += st.earsV[k2] * dt; e.ear.rotation.set(e.s * (0.3 + st.ears[k2] * 0.6 + 0.5 * a), st.ears[k2] * 0.4, 0); }
   for (let i = 0; i < U.tail.length; i++) { const tx = i === 0 ? Math.sin(st.ph) * 0.5 * (1 - a) + Math.sin(st.t * 1.7) * 0.15 : st.tA[i - 1] * 0.7; st.tV[i] += (24 * (tx - st.tA[i]) - 2.4 * st.tV[i]) * dt; st.tA[i] += st.tV[i] * dt;
@@ -544,7 +579,7 @@ function update(st, dt) {
   if (st.inv > 0) st.inv -= dt; if (st.shake > 0) st.shake -= dt;
   let move;
   if (st.kbT > 0) { st.kbT -= dt; const p = Math.min(1, 1 - st.kbT / KB_T); const sft = st.kbDist * (1 - (1 - p) * (1 - p)); move = -(sft - st.kbDone); st.kbDone = sft; if (st.kbT <= 0) { st.kbT = 0; for (const o of st.obs) o.hit = 0; } }
-  else { st.recover = Math.min(1, st.recover + dt / 0.9); move = st.speed * st.recover * dt; }
+  else { const Dst = st.speed * Math.min(1.1, 4 / st.speed) / 2, rem = st.P.length - st.dist; st.recover = st.won >= 0 ? 0 : rem < Dst ? Math.min(Math.max(0.03, Math.sqrt(Math.max(0, rem) / Dst)), st.recover + dt / 0.9) : Math.min(1, st.recover + dt / 0.9); move = st.speed * st.recover * dt; }
   st.dist = Math.max(0, st.dist + move); grassT.offset.x = (st.dist / TL * 16) % 1;
   const P = st.P;
   if (st.nextAt - st.dist < 30 && st.nextAt < P.length - 6) {
@@ -557,10 +592,12 @@ function update(st, dt) {
     st.nextAt += len + st.speed * (combo ? Math.max(0.7, P.gap * 0.5) : P.gap * (0.9 + Math.random() * 0.4));
   }
   if (!st.finish && P.length - st.dist < 30) { st.finish = true; st.obs.push({ d: P.length - st.dist, len: 0, type: 'finish', g: makeFinish() }); }
-  if (st.dist >= P.length) { levelComplete(); return; }
+  if (st.won < 0 && st.dist >= P.length - 0.05) { st.dist = P.length; st.won = 0; st.tf = st.t; st.kbT = 0; st.inv = 0; const fo = st.obs.find(o => o.type === 'finish'); if (fo) burstConfetti(fo.g); haptic('medium'); }
+  if (st.won >= 0) { st.won += dt; if (st.won >= 1.6) { levelComplete(); return; } }
+  for (const o of st.obs) if (o.type === 'finish') animFinish(o.g, st.t, dt);
   for (const o of st.obs) { o.d -= move; if (o.g.userData.wt) o.g.userData.wt.offset.y = (st.t * 0.25) % 1; if (!o.counted && o.type !== 'finish' && o.d + o.len < -1.2) { o.counted = 1; st.passed++; } }
   for (const o of st.obs) if (o.d + o.len < -9) { disposeObs(o.g); o.dead = 1; } st.obs = st.obs.filter(o => !o.dead);
-  const ctl = control(); st.ctl = ctl;
+  const ctl = st.won >= 0 ? 'none' : control(); st.ctl = ctl;
   const grounded = st.y <= 0 && st.vy <= 0;
   if (ctl === 'high' && grounded) { st.vy = JV; haptic('light'); }
   if (st.y > 0 || st.vy > 0) {
@@ -639,11 +676,11 @@ function levelComplete() {
   $('winLvl').textContent = 'Уровень ' + N;
   $('winStars').textContent = starStr(st_);
   $('winStarNote').textContent = (st_ > prevStars && prevStars ? 'Лучше, чем было! ' : '') + (mode === 'voice' && st_ < 3 ? 'Пройди без потерь жизней — будет три звезды.' : '');
-  $('winInfo').textContent = 'Время ' + fmtSec(G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
+  $('winInfo').textContent = 'Время ' + fmtSec(G.tf || G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
   $('nextLvl').textContent = toVoice ? 'Дальше голосом 🎤: уровень ' + (N + 1) : 'Дальше: уровень ' + (N + 1);
   $('nextLvl').dataset.voice = toVoice ? '1' : '';
   show('scrWin'); endUI();
-  report('level', { level: N, stars: st_, mode, camera: !!camStream, seconds: Math.round(G.t), livesLeft: G.lives, livesTotal: G.P.lives });
+  report('level', { level: N, stars: st_, mode, camera: !!camStream, seconds: Math.round(G.tf || G.t), livesLeft: G.lives, livesTotal: G.P.lives });
 }
 function toMenu() { running = false; clearObs(); G = null; selLevel = Math.min(selLevel, maxLevel); showLevelSel(); show('scrStart'); $('hud').classList.add('hidden'); endUI(); }
 
