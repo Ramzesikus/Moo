@@ -44,6 +44,8 @@
   <div class="card">
     <div><span class="big" id="hz">—</span><span class="note" id="nt"></span></div>
     <div class="lvl"><div id="lvl"></div></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;"><span id="mooTag" style="font-size:20px;font-weight:700;padding:6px 12px;border-radius:10px;background:#ece9e2;">—</span><span class="st" id="mooR">доля низких частот: —</span></div>
+    <div class="st">Проверка «му»: помычи низко и высоко, потом скажи «ааа», «иии», «эээ», посвисти — и скопируй отчёт.</div>
     <canvas id="graph" width="1000" height="280"></canvas>
     <div class="st">График: высота голоса за последние 6 секунд (полутона, нота по краю).</div>
     <video id="cam" playsinline muted autoplay></video>
@@ -101,10 +103,17 @@
     const shift = den ? (x0 - x2) / (2 * den) : 0;
     return { f: sr / (best + shift), clarity: 1 - c[best] };
   }
+  function mooRatio(f0) {
+    fa.getFloatFrequencyData(spec);
+    const binHz = ac.sampleRate / fa.fftSize; let lo = 0, hi = 0;
+    for (let k = 1; k * f0 < 4000; k++) { const b = Math.round(k * f0 / binHz); let db = -200; for (let j = b - 1; j <= b + 1; j++) if (j > 0 && j < spec.length) db = Math.max(db, spec[j]); const pw = Math.pow(10, db / 10); if (k * f0 < 1000) lo += pw; else hi += pw; }
+    return lo + hi > 0 ? lo / (lo + hi) : 0;
+  }
   const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   function noteOf(f) { const m = 69 + 12 * Math.log2(f / 440); const r = Math.round(m); return { name: NAMES[(r % 12 + 12) % 12] + (Math.floor(r / 12) - 1), cents: Math.round((m - r) * 100), midi: m }; }
 
   // ---------- Mic ----------
+  let fa = null, spec = null, rStats = [];
   let ac = null, stream = null, an = null, buf = null, running = false, hist = [], voicedFrames = 0, lastLog = 0;
   async function startMic() {
     $('micBtn').disabled = true;
@@ -119,6 +128,7 @@
       if (ac.state === 'suspended') await ac.resume();
       const src = ac.createMediaStreamSource(stream);
       an = ac.createAnalyser(); an.fftSize = 2048; src.connect(an);
+      fa = ac.createAnalyser(); fa.fftSize = 4096; fa.smoothingTimeConstant = 0; src.connect(fa); spec = new Float32Array(fa.frequencyBinCount);
       buf = new Float32Array(an.fftSize);
       info['Частота дискретизации'] = ac.sampleRate + ' Гц'; renderInfo();
       running = true;
@@ -167,9 +177,15 @@
       const n = noteOf(r.f);
       $('hz').textContent = Math.round(r.f) + ' Гц';
       $('nt').textContent = n.name + (n.cents >= 0 ? ' +' : ' ') + n.cents + '¢';
+      const R = mooRatio(r.f);
+      const isMoo = R >= 0.75;
+      $('mooTag').textContent = isMoo ? 'похоже на «му» ✓' : 'не «му»';
+      $('mooTag').style.background = isMoo ? '#d6f0dc' : '#f6dcda';
+      $('mooR').textContent = 'доля низких частот: ' + R.toFixed(2);
+      rStats.push(R);
       hist.push({ t: now, m: n.midi });
       voicedFrames++;
-      if (now - lastLog > 1500) { log('Голос: ' + Math.round(r.f) + ' Гц (' + n.name + '), громкость ' + rms.toFixed(3)); lastLog = now; }
+      if (now - lastLog > 700) { log('Голос: ' + Math.round(r.f) + ' Гц (' + n.name + '), громкость ' + rms.toFixed(3) + ', низкие ' + R.toFixed(2) + (isMoo ? ' МУ' : ' —')); lastLog = now; }
     }
     hist = hist.filter(p => now - p.t < 6000);
     draw();

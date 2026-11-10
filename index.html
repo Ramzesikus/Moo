@@ -21,12 +21,16 @@
   #micLbl { font-size:13px; font-weight:600; min-width:62px; }
   #stats { right:10px; text-align:right; }
   #dist { font-size:16px; font-weight:700; }
-  #hearts { font-size:15px; letter-spacing:1px; }
+  #hearts { font-size:15px; letter-spacing:1px; transition:transform .2s; display:inline-block; }
   #pauseBtn { left:50%; transform:translateX(-50%); border:0; font-size:18px; width:40px; height:40px; border-radius:20px; background:rgba(255,255,255,.9); box-shadow:0 1px 3px rgba(0,0,0,.12); }
   #meter { position:absolute; right:14px; top:calc(env(safe-area-inset-top) + var(--tg-top, 0px) + 80px); width:14px; height:170px; border-radius:7px; overflow:hidden; background:#e8e5de; box-shadow:0 1px 3px rgba(0,0,0,.15); }
   #meter .zh { position:absolute; left:0; right:0; top:0; background:#f3b6b3; }
   #meter .zl { position:absolute; left:0; right:0; bottom:0; background:#b6c9f1; }
   #mk { position:absolute; left:-3px; width:20px; height:6px; border-radius:3px; background:#2d2a32; display:none; }
+  #hint { position:absolute; right:14px; bottom:calc(env(safe-area-inset-bottom) + 18px); width:104px; text-align:center; }
+  #hintRing { width:92px; height:92px; margin:0 auto; border-radius:46px; display:flex; align-items:center; justify-content:center; background:conic-gradient(var(--hc,#b9b6ae) var(--hp,0%), rgba(255,255,255,.85) 0); box-shadow:0 2px 6px rgba(0,0,0,.18); transition:opacity .2s; }
+  #hintIn { width:74px; height:74px; border-radius:37px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:800; color:var(--hc,#b9b6ae); }
+  #hintTxt { margin-top:6px; font-size:13px; font-weight:700; color:#2d2a32; background:rgba(255,255,255,.88); border-radius:10px; padding:3px 6px; display:inline-block; }
   #ctrl { position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 16px); display:flex; justify-content:space-between; padding:0 16px; pointer-events:none; }
   #ctrl button { pointer-events:auto; width:92px; height:92px; border-radius:46px; border:0; font-size:34px; color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.2); }
   #btnLow { background:#3b6fd8; } #btnHigh { background:#e2504a; }
@@ -59,9 +63,10 @@
   <div id="hud" class="hidden">
     <div id="micPill" class="pill top"><div id="micDot"></div><div id="micLbl">тишина</div></div>
     <button id="pauseBtn" class="top" aria-label="Пауза">⏸</button>
-    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️ 50</div></div>
+    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️ 20</div></div>
     <div id="meter"><div class="zh" id="zh"></div><div class="zl" id="zl"></div><div id="mk"></div></div>
   </div>
+  <div id="hint" class="hidden"><div id="hintRing"><div id="hintIn">—</div></div><div id="hintTxt">мычи</div></div>
   <div id="ctrl" class="hidden"><button id="btnLow" aria-label="Низко">↓</button><button id="btnHigh" aria-label="Высоко">↑</button></div>
   <div id="toast"></div>
 
@@ -199,6 +204,7 @@ function voiceTick() {
   const r = analyse(); voice.rms = r.rms;
   let rawState = 'off';
   if (r.f) {
+    voice.lastF = r.f;
     const s = 12 * Math.log2(r.f / voice.base); voice.semis = s;
     const thr = voice.thr, hy = 0.7;
     if (voice.state === 'high' && s > thr - hy) rawState = 'high';
@@ -377,7 +383,7 @@ const JV = 3.8;
 let mode = 'voice', ctrlState = 'none';
 let G = null; // game state
 function newState() {
-  return { t: 0, speed: 4, dist: 0, lives: 50, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: 9, script: ['fence', 'bar', 'ditch', 'roof'], passed: 0, over: false, shake: 0, dust: [],
+  return { t: 0, speed: 4, dist: 0, lives: 20, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: 9, script: ['fence', 'bar', 'ditch', 'roof'], passed: 0, over: false, shake: 0, dust: [],
     y: 0, vy: 0, c: 0, cv: 0, air: 0, av: 0, tilt: 0, tv: 0, ph: 0, m: 0, mv: 0, ctl: 'none', glide: 0, bell: 0, bv: 0,
     tA: [0,0,0,0,0], tV: [0,0,0,0,0], tZ: [0,0,0,0,0], tZV: [0,0,0,0,0], look: 0, lookT: 4, hy: 0, hyv: 0, ears: [0, 0], earsV: [0, 0] };
 }
@@ -427,15 +433,20 @@ function collide(st) {
   }
 }
 function damage(st, o) {
-  st.lives--; st.inv = 1.4; st.shake = 0.35; haptic('err');
+  st.shake = 0.35; haptic('err');
+  if (st.inv <= 0) { st.inv = 2; loseLife(st); if (st.over) return; }
   const need = (o.type === 'ditch' ? 1.7 : 1.5) - o.d;
-  st.kbT = 0.5; st.kbDist = Math.max(0.6, need); st.kbDone = 0; st.recover = 0;
-  if (st.y <= 0.02) st.vy = 2.0;
+  st.kbT = KB_T; st.kbDist = 3 * Math.max(0.6, need); st.kbDone = 0; st.recover = 0;
+  if (st.y <= 0.02) st.vy = 2.4;
   if (o.type === 'ditch') splash(st);
   toast(o.type === 'ditch' ? 'Плюх! 💦' : 'Ой! 💥');
-  renderHearts();
+}
+function loseLife(st) {
+  st.lives--; renderHearts(); haptic('heavy');
+  const h = $('hearts'); h.style.transform = 'scale(1.35)'; setTimeout(() => h.style.transform = '', 220);
   if (st.lives <= 0) gameOver();
 }
+const KB_T = 0.9;
 const splashM = toon('#7cc8f0');
 function splash(st) { for (let i = 0; i < 10; i++) { const m = new T.Mesh(dustG, splashM); m.position.set(-0.2 + Math.random() * 0.8, 0.05, (Math.random() - 0.5) * 0.8); scene.add(m); st.dust.push({ m, l: 0.6, vx: -1 - Math.random() * 1.5, vy: 1.5 + Math.random() * 1.5 }); } }
 function renderHearts() { $('hearts').textContent = '❤️ ' + Math.max(0, G.lives); }
@@ -450,7 +461,7 @@ function update(st, dt) {
   st.t += dt; st.speed = Math.min(8, 4 + st.t * 4 / 180);
   if (st.inv > 0) st.inv -= dt; if (st.shake > 0) st.shake -= dt;
   let move;
-  if (st.kbT > 0) { st.kbT -= dt; const p = Math.min(1, 1 - st.kbT / 0.5); const sft = st.kbDist * (1 - (1 - p) * (1 - p)); move = -(sft - st.kbDone); st.kbDone = sft; if (st.kbT <= 0) { st.kbT = 0; for (const o of st.obs) o.hit = 0; } }
+  if (st.kbT > 0) { st.kbT -= dt; const p = Math.min(1, 1 - st.kbT / KB_T); const sft = st.kbDist * (1 - (1 - p) * (1 - p)); move = -(sft - st.kbDone); st.kbDone = sft; if (st.kbT <= 0) { st.kbT = 0; for (const o of st.obs) o.hit = 0; } }
   else { st.recover = Math.min(1, st.recover + dt / 0.9); move = st.speed * st.recover * dt; }
   st.dist = Math.max(0, st.dist + move); grassT.offset.x = (st.dist / TL * 16) % 1;
   st.nextSpawn -= move;
@@ -485,13 +496,20 @@ function update(st, dt) {
   collide(st);
 }
 const camBase = new T.Vector3(-9.0, 7.4, 6.6), lookBase = new T.Vector3(3.6, 1.6, -1.4); let camY = 0;
+function updateNote() {
+  if (mode !== 'voice') return;
+  const col = voice.state === 'high' ? '#e2504a' : voice.state === 'low' ? '#3b6fd8' : voice.voiced ? '#7bb661' : '#b9b6ae';
+  const ring = $('hintRing'); ring.style.setProperty('--hc', col); ring.style.setProperty('--hp', '100%');
+  if (voice.voiced && voice.lastF) { $('hintIn').textContent = noteName(voice.lastF); $('hintTxt').textContent = Math.round(voice.lastF) + ' Гц'; ring.style.opacity = 1; }
+  else { $('hintIn').textContent = '—'; $('hintTxt').textContent = 'мычи'; ring.style.opacity = 0.6; }
+}
 function render() {
   const st = G || idleState;
   camY += (st.y * 0.3 - camY) * 0.06;
   const sh = st.shake > 0 ? st.shake * 0.25 : 0;
   cam.position.set(camBase.x + (Math.random() - 0.5) * sh, camBase.y + camY + (Math.random() - 0.5) * sh, camBase.z);
   cam.lookAt(lookBase.x, lookBase.y + camY, lookBase.z); R.render(scene, cam);
-  if (G) { $('dist').textContent = Math.floor(G.dist) + ' м'; }
+  if (G) { $('dist').textContent = Math.floor(G.dist) + ' м'; updateNote(); }
 }
 // idle cow on menu
 const idleState = newState();
@@ -510,7 +528,7 @@ requestAnimationFrame(frame);
 function startGame() {
   readyLoop = false; clearObs(); G = newState(); idleState.y = 0;
   running = true; paused = false; show(null);
-  $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice');
+  $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice'); $('hint').classList.toggle('hidden', mode !== 'voice'); 
   renderHearts(); last = performance.now();
   report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: voice.thr });
 }
@@ -522,10 +540,10 @@ function gameOver() {
   $('overInfo').textContent = 'Время ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') + ' · препятствий пройдено: ' + G.passed;
   $('overRec').textContent = isRec ? '🏆 Новый рекорд!' : 'Рекорд: ' + record + ' м';
   $('recal').classList.toggle('hidden', mode !== 'voice');
-  show('scrOver'); $('ctrl').classList.add('hidden');
+  show('scrOver'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden');
   report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: voice.thr, maxSpeed: +G.speed.toFixed(1) });
 }
-function toMenu() { running = false; clearObs(); G = null; show('scrStart'); showRecord(); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); }
+function toMenu() { running = false; clearObs(); G = null; show('scrStart'); showRecord(); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden'); }
 
 // ================= FLOW =================
 async function begin(m) {
