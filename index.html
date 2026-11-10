@@ -147,7 +147,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '9';
+const VERSION = '10';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -191,10 +191,12 @@ function levelParams(N) {
 }
 const BTN_PER_DAY = 2;
 function btnQuota() { const d = new Date(); const today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); let q = null; try { q = JSON.parse(localStorage.getItem('moo_btn') || 'null'); } catch(e){} if (!q || q.d !== today) q = { d: today, n: 0 }; return q; }
-function btnLeft() { return Math.max(0, BTN_PER_DAY - btnQuota().n); }
+const BTN_FREE = ['ramzesikus21'];
+const btnFree = (() => { try { const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user; return !!(u && u.username && BTN_FREE.includes(u.username.toLowerCase())); } catch(e) { return false; } })();
+function btnLeft() { return btnFree ? 99 : Math.max(0, BTN_PER_DAY - btnQuota().n); }
 function useBtn() { const q = btnQuota(); q.n++; try { localStorage.setItem('moo_btn', JSON.stringify(q)); } catch(e){} }
 function updateBtnInfo() { const left = btnLeft(), replay = selLevel < maxLevel, b = document.getElementById('goButtons'); b.disabled = left <= 0 && !replay;
-  document.getElementById('btnBadge').textContent = replay ? '' : String(Math.max(0, left)); }
+  document.getElementById('btnBadge').textContent = replay || btnFree ? '' : String(Math.max(0, left)); }
 let stars = {};
 try { stars = JSON.parse(localStorage.getItem('moo_stars') || '{}') || {}; } catch(e){ stars = {}; }
 function saveStars() { const v = JSON.stringify(stars); try { localStorage.setItem('moo_stars', v); } catch(e){} try { tg && tg.CloudStorage && tg.CloudStorage.setItem('moo_stars', v); } catch(e){} }
