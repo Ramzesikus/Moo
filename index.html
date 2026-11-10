@@ -10,7 +10,8 @@
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { margin:0; height:100%; overflow:hidden; background:#cfe8f3; font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif; color:#2d2a32; -webkit-user-select:none; user-select:none; touch-action:none; }
   #app { position:fixed; inset:0; background:linear-gradient(#bfe3f2,#eef8fc); overflow:hidden; }
-  #camv { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:none; }
+  #camBox { position:absolute; left:0; right:0; top:0; height:64%; overflow:hidden; display:none; -webkit-mask-image:linear-gradient(to bottom,#000 72%,transparent 100%); mask-image:linear-gradient(to bottom,#000 72%,transparent 100%); }
+  #camv { width:100%; height:100%; object-fit:cover; object-position:50% 35%; transform:scaleX(-1); display:block; }
   #gl { position:absolute; inset:0; width:100%; height:100%; display:block; }
   .hidden { display:none !important; }
   .top { position:absolute; top:calc(env(safe-area-inset-top) + var(--tg-top, 0px) + 10px); }
@@ -52,13 +53,13 @@
 </head>
 <body>
 <div id="app">
-  <video id="camv" playsinline muted autoplay></video>
+  <div id="camBox"><video id="camv" playsinline muted autoplay></video></div>
   <canvas id="gl"></canvas>
 
   <div id="hud" class="hidden">
     <div id="micPill" class="pill top"><div id="micDot"></div><div id="micLbl">тишина</div></div>
     <button id="pauseBtn" class="top" aria-label="Пауза">⏸</button>
-    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️❤️❤️</div></div>
+    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️ 50</div></div>
     <div id="meter"><div class="zh" id="zh"></div><div class="zl" id="zl"></div><div id="mk"></div></div>
   </div>
   <div id="ctrl" class="hidden"><button id="btnLow" aria-label="Низко">↓</button><button id="btnHigh" aria-label="Высоко">↑</button></div>
@@ -275,11 +276,11 @@ async function startCam() {
   if (camStream && camStream.active) return true;
   try {
     camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } } });
-    const v = $('camv'); v.srcObject = camStream; v.style.display = 'block'; await v.play().catch(() => {});
+    const v = $('camv'); v.srcObject = camStream; $('camBox').style.display = 'block'; await v.play().catch(() => {});
     return true;
-  } catch (e) { $('camv').style.display = 'none'; camStream = null; return false; }
+  } catch (e) { $('camBox').style.display = 'none'; camStream = null; return false; }
 }
-function stopCam() { if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('camv').style.display = 'none'; }
+function stopCam() { if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('camBox').style.display = 'none'; }
 
 // ================= 3D =================
 const T = THREE;
@@ -349,6 +350,8 @@ const TL = 70, TW = 3.2, TX0 = -10;
 const track = new T.Mesh(new T.BoxGeometry(TL, 0.3, TW), [toon('#5a9e45'), toon('#5a9e45'), new T.MeshToonMaterial({ map: grassT, gradientMap: gm }), toon('#5a9e45'), toon('#4d8c3b'), toon('#4d8c3b')]);
 track.position.set(TX0 + TL / 2, -0.15, 0); track.renderOrder = -1; scene.add(track);
 const cow = makeCow(); scene.add(cow); const U = cow.userData;
+const cowMats = []; const RED = new T.Color('#ff3b30'); let cowRed = false;
+cow.traverse(o => { if (o.isMesh && o.material && o.material.isMeshToonMaterial && !cowMats.some(c => c.m === o.material)) cowMats.push({ m: o.material, base: o.material.color.clone(), red: o.material.color.clone().lerp(RED, 0.7) }); });
 const shadow = new T.Mesh(new T.CircleGeometry(0.6, 32), new T.MeshBasicMaterial({ color: '#2f5a25', transparent: true, opacity: 0.28, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.006; shadow.renderOrder = -1; scene.add(shadow);
 const cam = new T.PerspectiveCamera(38, 9 / 16, 0.1, 90);
 const HFOV = 2 * Math.atan(Math.tan(19 * Math.PI / 180) * 9 / 16);
@@ -374,7 +377,7 @@ const JV = 3.8;
 let mode = 'voice', ctrlState = 'none';
 let G = null; // game state
 function newState() {
-  return { t: 0, speed: 4, dist: 0, lives: 3, inv: 0, obs: [], nextSpawn: 9, script: ['fence', 'bar', 'ditch', 'roof'], passed: 0, over: false, shake: 0, dust: [],
+  return { t: 0, speed: 4, dist: 0, lives: 50, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: 9, script: ['fence', 'bar', 'ditch', 'roof'], passed: 0, over: false, shake: 0, dust: [],
     y: 0, vy: 0, c: 0, cv: 0, air: 0, av: 0, tilt: 0, tv: 0, ph: 0, m: 0, mv: 0, ctl: 'none', glide: 0, bell: 0, bv: 0,
     tA: [0,0,0,0,0], tV: [0,0,0,0,0], tZ: [0,0,0,0,0], tZV: [0,0,0,0,0], look: 0, lookT: 4, hy: 0, hyv: 0, ears: [0, 0], earsV: [0, 0] };
 }
@@ -400,16 +403,19 @@ function pose(st, dt) {
   U.bellS.rotation.z = -(U.torso.rotation.z + U.neckG.rotation.z - 0.85) + st.bell;
   const bl = (st.t % 3.1) < 0.11 ? 0.12 : 1; for (const e of U.eyes) e.scale.y = bl;
   const s = Math.max(0.35, 1 - st.y * 0.6); shadow.scale.set(1.5 * s, 0.62 * s, 1); shadow.material.opacity = 0.28 * s;
-  cow.visible = st.inv > 0 ? Math.floor(st.inv * 12) % 2 === 0 : true;
+  const fl = st.inv > 0 && Math.floor(st.inv * 9) % 2 === 0; if (fl !== cowRed) { cowRed = fl; for (const c of cowMats) c.m.color.copy(fl ? c.red : c.base); }
 }
 const _v = new T.Vector3();
+function hoofPos(l, out) { return l.knee.localToWorld(out.set(0, -L2 - HOOFH, 0)); }
 function collide(st) {
+  if (st.kbT > 0) return;
+  cow.updateMatrixWorld(true);
   for (const o of st.obs) {
     if (o.hit || o.d > 1.4 || o.d + o.len < -1.4) continue;
     let hit = false;
     if (o.type === 'fence' || o.type === 'ditch') {
       const lo = o.type === 'fence' ? o.d - 0.1 : o.d + 0.05, hi = o.type === 'fence' ? o.d + 0.1 : o.d + o.len - 0.05, yl = o.type === 'fence' ? FENCE.rails[0] + 0.04 : 0.05;
-      for (const l of U.legs) { l.hoof.getWorldPosition(_v); if (_v.x > lo && _v.x < hi && _v.y < yl) { hit = true; break; } }
+      for (const l of U.legs) { hoofPos(l, _v); if (_v.x > lo && _v.x < hi && _v.y < yl) { hit = true; break; } }
     } else {
       const lim = (o.type === 'bar' ? BAR.rails[1] : ROOF) - 0.04; const pts = [];
       U.head.getWorldPosition(_v); pts.push(_v.clone().add(new T.Vector3(0, 0.27 * S, 0)));
@@ -417,21 +423,37 @@ function collide(st) {
       const lo = o.type === 'bar' ? o.d - 0.1 : o.d - 0.12, hi = o.type === 'bar' ? o.d + 0.1 : o.d + o.len + 0.12;
       for (const q of pts) if (q.x > lo && q.x < hi && q.y > lim) { hit = true; break; }
     }
-    if (hit) { o.hit = 1; if (st.inv <= 0) damage(st, o.type); }
+    if (hit && st.kbT <= 0) { damage(st, o); return; }
   }
 }
-function damage(st, type) {
-  st.lives--; st.inv = 1.6; st.shake = 0.35; haptic('err');
-  toast(type === 'ditch' ? 'Плюх! 💦' : 'Ой! 💥');
+function damage(st, o) {
+  st.lives--; st.inv = 1.4; st.shake = 0.35; haptic('err');
+  const need = (o.type === 'ditch' ? 1.7 : 1.5) - o.d;
+  st.kbT = 0.5; st.kbDist = Math.max(0.6, need); st.kbDone = 0; st.recover = 0;
+  if (st.y <= 0.02) st.vy = 2.0;
+  if (o.type === 'ditch') splash(st);
+  toast(o.type === 'ditch' ? 'Плюх! 💦' : 'Ой! 💥');
   renderHearts();
   if (st.lives <= 0) gameOver();
 }
-function renderHearts() { $('hearts').textContent = '❤️'.repeat(Math.max(0, G.lives)) + '🤍'.repeat(3 - Math.max(0, G.lives)); }
-function control() { return mode === 'voice' ? voice.state : ctrlState; }
+const splashM = toon('#7cc8f0');
+function splash(st) { for (let i = 0; i < 10; i++) { const m = new T.Mesh(dustG, splashM); m.position.set(-0.2 + Math.random() * 0.8, 0.05, (Math.random() - 0.5) * 0.8); scene.add(m); st.dust.push({ m, l: 0.6, vx: -1 - Math.random() * 1.5, vy: 1.5 + Math.random() * 1.5 }); } }
+function renderHearts() { $('hearts').textContent = '❤️ ' + Math.max(0, G.lives); }
+const DEBUG = location.hash === '#debug';
+let aiOn = false;
+function aiControl(st) { const ahead = st.obs.filter(o => o.d + o.len > -1.0).sort((a, b) => a.d - b.d)[0]; if (!ahead || st.kbT > 0) return 'none';
+  if (ahead.type === 'fence') { if (ahead.d < st.speed * 0.26 + 0.35 && ahead.d > -0.6) return 'high'; return 'none'; }
+  if (ahead.type === 'ditch') { if (ahead.d < st.speed * 0.2 + 0.55 && ahead.d + ahead.len > -0.75 * S - 0.1) return 'high'; return 'none'; }
+  return (ahead.d < st.speed * 0.4 + 0.9 && ahead.d + ahead.len > -0.95) ? 'low' : 'none'; }
+function control() { if (aiOn && G) return aiControl(G); return mode === 'voice' ? voice.state : ctrlState; }
 function update(st, dt) {
-  st.t += dt; st.speed = Math.min(8, 4 + st.t * 4 / 180); st.dist += st.speed * dt; grassT.offset.x = (st.dist / TL * 16) % 1;
+  st.t += dt; st.speed = Math.min(8, 4 + st.t * 4 / 180);
   if (st.inv > 0) st.inv -= dt; if (st.shake > 0) st.shake -= dt;
-  st.nextSpawn -= st.speed * dt;
+  let move;
+  if (st.kbT > 0) { st.kbT -= dt; const p = Math.min(1, 1 - st.kbT / 0.5); const sft = st.kbDist * (1 - (1 - p) * (1 - p)); move = -(sft - st.kbDone); st.kbDone = sft; if (st.kbT <= 0) { st.kbT = 0; for (const o of st.obs) o.hit = 0; } }
+  else { st.recover = Math.min(1, st.recover + dt / 0.9); move = st.speed * st.recover * dt; }
+  st.dist = Math.max(0, st.dist + move); grassT.offset.x = (st.dist / TL * 16) % 1;
+  st.nextSpawn -= move;
   if (st.nextSpawn <= 0) {
     let type; if (st.script.length) type = st.script.shift(); else { const r = Math.random(); type = r < 0.25 ? 'fence' : r < 0.5 ? 'ditch' : r < 0.75 ? 'bar' : 'roof'; }
     const early = st.t < 40;
@@ -439,7 +461,7 @@ function update(st, dt) {
     st.obs.push({ d: 30, len, type, g: makeObs(type, len) });
     st.nextSpawn = len + st.speed * (1.7 + Math.random() * 1.2 + Math.max(0, 1.5 - st.t / 30));
   }
-  for (const o of st.obs) { o.d -= st.speed * dt; if (o.g.userData.wt) o.g.userData.wt.offset.y = (st.t * 0.25) % 1; if (!o.counted && o.d + o.len < -1.2) { o.counted = 1; if (!o.hit) st.passed++; } }
+  for (const o of st.obs) { o.d -= move; if (o.g.userData.wt) o.g.userData.wt.offset.y = (st.t * 0.25) % 1; if (!o.counted && o.d + o.len < -1.2) { o.counted = 1; st.passed++; } }
   for (const o of st.obs) if (o.d + o.len < -9) { disposeObs(o.g); o.dead = 1; } st.obs = st.obs.filter(o => !o.dead);
   const ctl = control(); st.ctl = ctl;
   const grounded = st.y <= 0 && st.vy <= 0;
@@ -451,11 +473,11 @@ function update(st, dt) {
     if (st.y <= 0) { st.y = 0; const imp = -st.vy; st.vy = 0; st.cv += Math.min(6, imp * 1.1); if (imp > 1) for (let i = 0; i < 6; i++) { const m = new T.Mesh(dustG, dustM); m.position.set(-0.5 + Math.random() * 1.1, 0.05, (Math.random() - 0.5) * 0.7); scene.add(m); st.dust.push({ m, l: 0.5, vx: -st.speed * 0.4 - Math.random(), vy: 0.6 + Math.random() * 0.6 }); } }
   }
   sp(st, 'c', 'cv', ctl === 'low' && st.y <= 0.02 ? 1 : 0, 70, 10, dt); sp(st, 'air', 'av', st.y > 0.03 ? 1 : 0, 160, 22, dt);
-  sp(st, 'tilt', 'tv', st.y > 0 ? Math.max(-0.3, Math.min(0.3, st.vy * 0.07)) : -0.04 * st.c, 90, 13, dt);
+  sp(st, 'tilt', 'tv', st.kbT > 0 ? -0.35 : st.y > 0 ? Math.max(-0.3, Math.min(0.3, st.vy * 0.07)) : -0.04 * st.c, 90, 13, dt);
   const mouthT = mode === 'voice' ? (voice.voiced ? Math.min(1, 0.4 + voice.rms * 8) : 0) : (ctl !== 'none' ? 0.8 + 0.15 * Math.sin(st.t * 22) : 0);
   sp(st, 'm', 'mv', mouthT, 140, 16, dt);
   st.glide += ((st.y > 0.05 && st.vy < 0.6 && ctl === 'high' ? 1 : 0) - st.glide) * Math.min(1, dt * 6);
-  st.ph += dt * Math.PI * 2 * (2.0 + st.speed * 0.12) * (1 - 0.3 * st.c) * (1 - 0.85 * Math.min(1, st.air) * (1 - st.glide * 0.7));
+  st.ph += dt * Math.PI * 2 * (2.0 + st.speed * 0.12) * (st.kbT > 0 ? -0.6 : 0.3 + 0.7 * st.recover) * (1 - 0.3 * st.c) * (1 - 0.85 * Math.min(1, st.air) * (1 - st.glide * 0.7));
   st.lookT -= dt; if (st.lookT <= 0) { st.look = st.look ? 0 : 1; st.lookT = st.look ? 0.9 + Math.random() * 0.6 : 3 + Math.random() * 4; } sp(st, 'hy', 'hyv', st.look * 0.55, 30, 8, dt);
   for (const p of st.dust) { p.l -= dt; p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.vy -= 2 * dt; const s = Math.max(0.01, p.l / 0.5); p.m.scale.setScalar(0.6 + (1 - s) * 0.8); if (p.l <= 0) scene.remove(p.m); } st.dust = st.dust.filter(p => p.l > 0);
   pose(st, dt);
@@ -536,6 +558,7 @@ bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
 window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
 window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
 try { const b = +localStorage.getItem('moo_base'); if (b > 50) voice.base = b; } catch(e){}
+if (DEBUG) window.__moo = { get G() { return G; }, startGame: () => { mode = 'buttons'; startGame(); }, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
 })();
 </script>
 </body>
