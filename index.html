@@ -46,6 +46,9 @@
   .btn.sec { background:#ece9e2; color:#2d2a32; }
   .btn.red { background:#e2504a; }
   .btn:disabled { opacity:.45; }
+  .badge { display:inline-block; min-width:24px; height:24px; line-height:24px; border-radius:12px; margin-left:8px; background:#3b6fd8; color:#fff; font-size:15px; vertical-align:1px; }
+  .badge:empty { display:none; }
+  .btn:disabled .badge { background:#8a8690; }
   .opt { display:flex; align-items:center; justify-content:space-between; margin-top:12px; font-size:15px; text-align:left; }
   .opt input[type=checkbox] { width:22px; height:22px; }
   .opt input[type=range] { width:140px; }
@@ -80,14 +83,12 @@
   <div id="scrStart" class="screen">
     <div class="card">
       <h1>🐮 Му-раннер</h1>
-      <p>Молчи — корова бежит.<br>Мычи <b style="color:#3b6fd8">обычным голосом</b> — пригибается под жердями.<br>Мычи <b style="color:#e2504a">высоко</b> — прыгает и парит над водой.</p>
-      <p>Чем длиннее ручей или навес — тем дольше тяни «мууу».</p>
+      <p>Тихо — бег. <b style="color:#3b6fd8">«Му»</b> — присед. <b style="color:#e2504a">Высокое «му»</b> — прыжок.</p>
       <div class="lvlsel"><button id="lvPrev" aria-label="Предыдущий уровень">◀</button><div><div class="small">Уровень</div><div class="big" id="lvNum">1</div><div id="lvStars" style="font-size:18px;letter-spacing:2px;min-height:22px;"></div></div><button id="lvNext" aria-label="Следующий уровень">▶</button></div>
       <p class="small" id="lvInfo"></p>
       <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
       <button class="btn" id="goVoice">🎤 Играть голосом</button>
-      <button class="btn sec" id="goButtons">Играть кнопками</button>
-      <p class="small" id="btnInfo"></p>
+      <button class="btn sec" id="goButtons">Играть кнопками<span id="btnBadge" class="badge"></span></button>
             <p class="small" id="verLine"></p>
       <div class="err" id="startErr"></div>
     </div>
@@ -106,14 +107,8 @@
   <div id="scrReady" class="screen hidden">
     <div class="card">
       <h2>Готово!</h2>
-      <p>Твоё обычное «му»: <b id="baseLbl"></b> — это <b style="color:#3b6fd8">присед</b>.</p>
-      <p><b style="color:#e2504a">Прыжок</b> — выше на <b id="thrLbl1">3</b> (<span id="hzH"></span>).</p>
-      <div class="opt"><label for="optThr">Порог «высоко»</label><input type="range" id="optThr" min="1" max="6" step="0.5" value="3"></div>
-      <p class="small">Влево — прыжок срабатывает легче, вправо — нужно мычать выше.</p>
-      <p class="small">Попробуй сейчас: столбик справа показывает твой голос.</p>
-      <div class="legend"><span style="background:#fde2e1">↑ прыжок</span><span style="background:#e0e8fb">↓ присед</span><span style="background:#ece9e2">тишина — бег</span></div>
+      <p>Столбик справа — твой голос. Попробуй.</p>
       <button class="btn" id="goPlay">Поехали!</button>
-      <button class="btn sec" id="goRecal">Перекалибровать</button>
     </div>
   </div>
 
@@ -152,7 +147,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '7';
+const VERSION = '8';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -199,7 +194,7 @@ function btnQuota() { const d = new Date(); const today = d.getFullYear() + '-' 
 function btnLeft() { return Math.max(0, BTN_PER_DAY - btnQuota().n); }
 function useBtn() { const q = btnQuota(); q.n++; try { localStorage.setItem('moo_btn', JSON.stringify(q)); } catch(e){} }
 function updateBtnInfo() { const left = btnLeft(), replay = selLevel < maxLevel, b = document.getElementById('goButtons'); b.disabled = left <= 0 && !replay;
-  document.getElementById('btnInfo').textContent = replay ? 'Пройденный уровень кнопками — бесплатно' : left > 0 ? 'Кнопками — сегодня осталось: ' + left : 'Кнопками на сегодня всё — играй голосом 🎤'; }
+  document.getElementById('btnBadge').textContent = replay ? '' : String(Math.max(0, left)); }
 let stars = {};
 try { stars = JSON.parse(localStorage.getItem('moo_stars') || '{}') || {}; } catch(e){ stars = {}; }
 function saveStars() { const v = JSON.stringify(stars); try { localStorage.setItem('moo_stars', v); } catch(e){} try { tg && tg.CloudStorage && tg.CloudStorage.setItem('moo_stars', v); } catch(e){} }
@@ -333,16 +328,12 @@ function noteName(f) { const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A
 let readyLoop = false;
 function showReady() {
   show('scrReady'); $('hud').classList.remove('hidden');
-  $('baseLbl').textContent = Math.round(voice.base) + ' Гц (' + noteName(voice.base) + ')';
-  $('optThr').value = voice.thrH; renderThr();
+  layoutMeter();
   readyLoop = true;
   (function step() { if (!readyLoop) return; voiceTick(); updateMeter(); requestAnimationFrame(step); })();
 }
 function fmtT(x) { return (Math.round(x * 10) / 10).toString().replace('.', ','); }
 function semi(x) { const r = Math.round(x * 10) / 10; if (r % 1) return fmtT(r) + ' полутона'; const n = Math.abs(r) % 100, n1 = n % 10; return fmtT(r) + (n > 10 && n < 20 ? ' полутонов' : n1 === 1 ? ' полутон' : n1 >= 2 && n1 <= 4 ? ' полутона' : ' полутонов'); }
-function renderThr() { $('thrLbl1').textContent = semi(voice.thrH); $('hzH').textContent = 'от ' + Math.round(voice.base * Math.pow(2, voice.thrH / 12)) + ' Гц'; layoutMeter(); }
-$('optThr').oninput = e => { voice.thrH = +e.target.value; renderThr(); try { localStorage.setItem('moo_cal3', JSON.stringify({ base: voice.base, gate: voice.gate, thrH: voice.thrH })); } catch(e){} };
-$('goRecal').onclick = () => { readyLoop = false; runCalibration(); };
 const MR = 8;
 function layoutMeter() { const h = Math.max(0, (MR - voice.thrH) / (2 * MR) * 100); $('zh').style.height = h + '%'; $('zl').style.height = (100 - h) + '%'; }
 layoutMeter();
@@ -647,7 +638,7 @@ function levelComplete() {
   const toVoice = mode === 'buttons' && btnLeft() <= 0;
   $('winLvl').textContent = 'Уровень ' + N;
   $('winStars').textContent = starStr(st_);
-  $('winStarNote').textContent = (st_ > prevStars && prevStars ? 'Лучше, чем было! ' : '') + (mode === 'buttons' ? 'Кнопками — максимум две звезды, три — только голосом.' : st_ < 3 ? 'Пройди без потерь жизней — будет три звезды.' : '');
+  $('winStarNote').textContent = (st_ > prevStars && prevStars ? 'Лучше, чем было! ' : '') + (mode === 'voice' && st_ < 3 ? 'Пройди без потерь жизней — будет три звезды.' : '');
   $('winInfo').textContent = 'Время ' + fmtSec(G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
   $('nextLvl').textContent = toVoice ? 'Дальше голосом 🎤: уровень ' + (N + 1) : 'Дальше: уровень ' + (N + 1);
   $('nextLvl').dataset.voice = toVoice ? '1' : '';
@@ -689,7 +680,7 @@ function bindHold(id, val) { const b = $(id); const on = e => { e.preventDefault
 bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
 window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
 window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
-try { const c = JSON.parse(localStorage.getItem('moo_cal3') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.thrH = c.thrH || 3; voice.calibrated = true; } } catch(e){}
+try { const c = JSON.parse(localStorage.getItem('moo_cal3') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.thrH = 3; voice.calibrated = true; } } catch(e){}
 if (DEBUG) window.__moo = { get G() { return G; }, startGame: (n) => { mode = 'buttons'; startGame(n || 1); }, levelParams, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
 })();
 </script>
