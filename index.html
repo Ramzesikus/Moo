@@ -2,201 +2,541 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Му-тест: микрофон</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Му-раннер</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="lib/three.min.js"></script>
 <style>
-  :root { --bg:#f4f2ec; --card:#fff; --tx:#2d2a32; --mut:#6b6a66; --acc:#3b6fd8; --red:#e2504a; --ok:#2e8b57; }
-  * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--tx); }
-  main { max-width:520px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
-  h1 { font-size:20px; margin:4px 0; font-weight:600; }
-  .card { background:var(--card); border-radius:14px; padding:14px; box-shadow:0 1px 2px rgba(0,0,0,.06); }
-  .row { display:flex; gap:8px; flex-wrap:wrap; }
-  button { font:inherit; font-size:16px; padding:12px 16px; border-radius:12px; border:0; background:var(--acc); color:#fff; flex:1; min-width:140px; }
-  button.sec { background:#e6e3db; color:var(--tx); }
-  button:disabled { opacity:.5; }
-  .big { font-size:44px; font-weight:700; line-height:1; }
-  .note { font-size:22px; color:var(--mut); margin-left:6px; }
-  .lvl { height:10px; background:#e6e3db; border-radius:5px; overflow:hidden; margin-top:10px; }
-  .lvl > div { height:100%; width:0; background:var(--ok); transition:width .05s; }
-  canvas { width:100%; height:140px; display:block; background:#faf9f6; border-radius:10px; margin-top:10px; }
-  video { width:100%; border-radius:10px; background:#000; display:none; margin-top:10px; transform:scaleX(-1); }
-  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; margin:0; font-size:14px; }
-  dt { color:var(--mut); } dd { margin:0; word-break:break-word; }
-  #log { font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre-wrap; max-height:220px; overflow:auto; background:#faf9f6; border-radius:10px; padding:8px; margin-top:8px; }
-  .st { font-size:14px; color:var(--mut); margin-top:6px; }
-  .bad { color:var(--red); } .good { color:var(--ok); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#cfe8f3; font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif; color:#2d2a32; -webkit-user-select:none; user-select:none; touch-action:none; }
+  #app { position:fixed; inset:0; background:linear-gradient(#bfe3f2,#eef8fc); overflow:hidden; }
+  #camv { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); display:none; }
+  #gl { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .hidden { display:none !important; }
+  .top { position:absolute; top:calc(env(safe-area-inset-top) + var(--tg-top, 0px) + 10px); }
+  .pill { background:rgba(255,255,255,.9); border-radius:14px; padding:7px 11px; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  #micPill { left:10px; display:flex; align-items:center; gap:8px; }
+  #micDot { width:14px; height:14px; border-radius:7px; background:#b9b6ae; }
+  #micLbl { font-size:13px; font-weight:600; min-width:62px; }
+  #stats { right:10px; text-align:right; }
+  #dist { font-size:16px; font-weight:700; }
+  #hearts { font-size:15px; letter-spacing:1px; }
+  #pauseBtn { left:50%; transform:translateX(-50%); border:0; font-size:18px; width:40px; height:40px; border-radius:20px; background:rgba(255,255,255,.9); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  #meter { position:absolute; right:14px; top:calc(env(safe-area-inset-top) + var(--tg-top, 0px) + 80px); width:14px; height:170px; border-radius:7px; overflow:hidden; background:#e8e5de; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  #meter .zh { position:absolute; left:0; right:0; top:0; background:#f3b6b3; }
+  #meter .zl { position:absolute; left:0; right:0; bottom:0; background:#b6c9f1; }
+  #mk { position:absolute; left:-3px; width:20px; height:6px; border-radius:3px; background:#2d2a32; display:none; }
+  #ctrl { position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 16px); display:flex; justify-content:space-between; padding:0 16px; pointer-events:none; }
+  #ctrl button { pointer-events:auto; width:92px; height:92px; border-radius:46px; border:0; font-size:34px; color:#fff; box-shadow:0 2px 6px rgba(0,0,0,.2); }
+  #btnLow { background:#3b6fd8; } #btnHigh { background:#e2504a; }
+  .screen { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(30,28,36,.38); }
+  .card { background:#fff; border-radius:20px; padding:22px 20px; width:100%; max-width:360px; text-align:center; box-shadow:0 8px 30px rgba(0,0,0,.2); }
+  .card h1 { margin:0 0 6px; font-size:26px; }
+  .card h2 { margin:0 0 8px; font-size:21px; }
+  .card p { margin:8px 0; font-size:15px; line-height:1.45; color:#4a4850; }
+  .card .small { font-size:12px; color:#8a8890; }
+  .btn { display:block; width:100%; border:0; border-radius:14px; padding:14px; font-size:17px; font-weight:600; margin-top:10px; background:#3b6fd8; color:#fff; }
+  .btn.sec { background:#ece9e2; color:#2d2a32; }
+  .btn.red { background:#e2504a; }
+  .opt { display:flex; align-items:center; justify-content:space-between; margin-top:12px; font-size:15px; text-align:left; }
+  .opt input[type=checkbox] { width:22px; height:22px; }
+  .opt input[type=range] { width:140px; }
+  .big { font-size:46px; font-weight:800; margin:6px 0; }
+  .ring { width:120px; height:120px; margin:12px auto; border-radius:60px; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:700; background:conic-gradient(#3b6fd8 var(--p,0%), #ece9e2 0); }
+  .ring span { width:96px; height:96px; border-radius:48px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .err { color:#c2413c; font-size:14px; min-height:18px; }
+  #toast { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); font-size:34px; font-weight:800; color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.35); opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+  .legend { display:flex; gap:10px; justify-content:center; margin-top:10px; font-size:14px; }
+  .legend span { padding:6px 10px; border-radius:10px; }
 </style>
 </head>
 <body>
-<main>
-  <h1>🐮 Му-тест: микрофон и камера</h1>
+<div id="app">
+  <video id="camv" playsinline muted autoplay></video>
+  <canvas id="gl"></canvas>
 
-  <div class="card">
-    <div class="row">
-      <button id="micBtn">Включить микрофон</button>
-      <button id="camBtn" class="sec">Проверить камеру</button>
+  <div id="hud" class="hidden">
+    <div id="micPill" class="pill top"><div id="micDot"></div><div id="micLbl">тишина</div></div>
+    <button id="pauseBtn" class="top" aria-label="Пауза">⏸</button>
+    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️❤️❤️</div></div>
+    <div id="meter"><div class="zh" id="zh"></div><div class="zl" id="zl"></div><div id="mk"></div></div>
+  </div>
+  <div id="ctrl" class="hidden"><button id="btnLow" aria-label="Низко">↓</button><button id="btnHigh" aria-label="Высоко">↑</button></div>
+  <div id="toast"></div>
+
+  <div id="scrStart" class="screen">
+    <div class="card">
+      <h1>🐮 Му-раннер</h1>
+      <p>Мычи <b style="color:#e2504a">высоко</b> — корова прыгает и парит над водой.<br>Мычи <b style="color:#3b6fd8">низко</b> — пригибается под жердями.</p>
+      <p>Чем длиннее ручей или навес — тем дольше тяни «мууу».</p>
+      <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
+      <button class="btn" id="goVoice">🎤 Играть голосом</button>
+      <button class="btn sec" id="goButtons">Играть кнопками</button>
+      <p id="recordLine" class="small"></p>
+      <p class="small">Имя в Telegram и результаты видит автор игры.</p>
+      <div class="err" id="startErr"></div>
     </div>
-    <div class="st" id="micState">Микрофон выключен. Нажми кнопку и помычи 🙂</div>
   </div>
 
-  <div class="card">
-    <div><span class="big" id="hz">—</span><span class="note" id="nt"></span></div>
-    <div class="lvl"><div id="lvl"></div></div>
-    <canvas id="graph" width="1000" height="280"></canvas>
-    <div class="st">График: высота голоса за последние 6 секунд (полутона, нота по краю).</div>
-    <video id="cam" playsinline muted autoplay></video>
+  <div id="scrCal" class="screen hidden">
+    <div class="card">
+      <h2 id="calTitle">Калибровка</h2>
+      <p id="calText">Помолчи секунду…</p>
+      <div class="ring" id="calRing"><span id="calVal"></span></div>
+      <div class="err" id="calErr"></div>
+      <button class="btn sec hidden" id="calRetry">Попробовать ещё раз</button>
+    </div>
   </div>
 
-  <div class="card">
-    <dl id="info"></dl>
+  <div id="scrReady" class="screen hidden">
+    <div class="card">
+      <h2>Готово!</h2>
+      <p>Твоё обычное «му»: <b id="baseLbl"></b></p>
+      <p>Чтобы прыгнуть — выше на <b id="thrLbl1">3</b> полутона.<br>Чтобы пригнуться — ниже на <b id="thrLbl2">3</b>.</p>
+      <div class="opt"><label for="optThr">Чувствительность (полутоны)</label><input type="range" id="optThr" min="2" max="6" step="0.5" value="3"></div>
+      <p class="small">Попробуй сейчас: столбик справа от экрана показывает твой голос.</p>
+      <div class="legend"><span style="background:#fde2e1">↑ высоко</span><span style="background:#ece9e2">обычно</span><span style="background:#e0e8fb">↓ низко</span></div>
+      <button class="btn" id="goPlay">Поехали!</button>
+      <button class="btn sec" id="goRecal">Перекалибровать</button>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="row"><button id="copyBtn" class="sec">Скопировать отчёт</button></div>
-    <div id="log"></div>
+  <div id="scrPause" class="screen hidden">
+    <div class="card"><h2>Пауза</h2><button class="btn" id="resume">Продолжить</button><button class="btn sec" id="toMenu1">В меню</button></div>
   </div>
-</main>
+
+  <div id="scrOver" class="screen hidden">
+    <div class="card">
+      <h2>Корова устала 🐄</h2>
+      <div class="big" id="overDist">0 м</div>
+      <p id="overInfo"></p>
+      <p id="overRec" style="font-weight:600"></p>
+      <button class="btn" id="again">Ещё раз</button>
+      <button class="btn sec" id="recal">Перекалибровать</button>
+      <button class="btn sec" id="toMenu2">В меню</button>
+    </div>
+  </div>
+</div>
 
 <script>
-(function () {
-  const tg = window.Telegram && window.Telegram.WebApp;
-  const inTG = !!(tg && tg.initData !== undefined && tg.platform && tg.platform !== 'unknown');
-  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+(function(){
+'use strict';
+// ================= CONFIG =================
+const REPORT_URL = '__REPORT_URL__';
 
-  const $ = id => document.getElementById(id);
-  const logEl = $('log');
-  const lines = [];
-  function log(msg, cls) {
-    const t = new Date().toLocaleTimeString('ru-RU');
-    lines.push('[' + t + '] ' + msg);
-    const d = document.createElement('div'); d.textContent = '[' + t + '] ' + msg; if (cls) d.className = cls;
-    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+// ================= TELEGRAM =================
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTG = !!(tg && tg.platform && tg.platform !== 'unknown');
+if (tg) {
+  try { tg.ready(); } catch(e){}
+  try { tg.expand(); } catch(e){}
+  try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch(e){}
+  try { tg.setHeaderColor && tg.setHeaderColor('#bfe3f2'); tg.setBackgroundColor && tg.setBackgroundColor('#bfe3f2'); } catch(e){}
+}
+const haptic = (k) => { try { tg && tg.HapticFeedback && (k === 'err' ? tg.HapticFeedback.notificationOccurred('error') : tg.HapticFeedback.impactOccurred(k)); } catch(e){} };
+function report(event, data) {
+  if (!REPORT_URL || REPORT_URL.indexOf('__') === 0) return;
+  const body = JSON.stringify({ event, data: data || {}, initData: inTG ? tg.initData : '', platform: inTG ? tg.platform : 'browser', ua: navigator.userAgent });
+  try {
+    if (navigator.sendBeacon && navigator.sendBeacon(REPORT_URL, new Blob([body], { type: 'text/plain' }))) return;
+  } catch(e){}
+  try { fetch(REPORT_URL, { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'text/plain' } }); } catch(e){}
+}
+report('open', {});
+
+// ================= STORAGE =================
+let record = 0;
+try { record = +(localStorage.getItem('moo_record') || 0); } catch(e){}
+function saveRecord() {
+  try { localStorage.setItem('moo_record', String(record)); } catch(e){}
+  try { tg && tg.CloudStorage && tg.CloudStorage.setItem('moo_record', String(record)); } catch(e){}
+}
+try { tg && tg.CloudStorage && tg.CloudStorage.getItem('moo_record', (err, v) => { if (!err && v && +v > record) { record = +v; showRecord(); } }); } catch(e){}
+function showRecord() { document.getElementById('recordLine').textContent = record ? 'Твой рекорд: ' + record + ' м' : ''; }
+showRecord();
+
+// ================= UI HELPERS =================
+const $ = id => document.getElementById(id);
+function show(id) { for (const s of ['scrStart','scrCal','scrReady','scrPause','scrOver']) $(s).classList.toggle('hidden', s !== id); }
+let toastT = 0;
+function toast(t) { const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => el.style.opacity = 0, 700); }
+
+// ================= AUDIO / PITCH =================
+let ac = null, micStream = null, an = null, raw = null, ds = null;
+async function initMic() {
+  if (micStream && micStream.active) { if (ac && ac.state === 'suspended') await ac.resume(); return; }
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  const AC = window.AudioContext || window.webkitAudioContext;
+  ac = new AC();
+  if (ac.state === 'suspended') await ac.resume();
+  const src = ac.createMediaStreamSource(micStream);
+  an = ac.createAnalyser(); an.fftSize = 2048; src.connect(an);
+  raw = new Float32Array(an.fftSize); ds = new Float32Array(an.fftSize / 2);
+}
+function yin(buf, sr) {
+  const half = buf.length >> 1;
+  const tMin = Math.floor(sr / 900), tMax = Math.min(half - 1, Math.floor(sr / 65));
+  const c = new Float32Array(tMax + 1); let run = 0; c[0] = 1;
+  for (let tau = 1; tau <= tMax; tau++) { let s = 0; for (let i = 0; i < half; i++) { const x = buf[i] - buf[i + tau]; s += x * x; } run += s; c[tau] = run ? s * tau / run : 1; }
+  let best = -1;
+  for (let tau = tMin; tau <= tMax; tau++) { if (c[tau] < 0.15) { while (tau + 1 <= tMax && c[tau + 1] < c[tau]) tau++; best = tau; break; } }
+  if (best < 0) return null;
+  const x0 = best > 1 ? c[best - 1] : c[best], x2 = best < tMax ? c[best + 1] : c[best];
+  const den = x0 + x2 - 2 * c[best]; const sh = den ? (x0 - x2) / (2 * den) : 0;
+  return { f: sr / (best + sh), clarity: 1 - c[best] };
+}
+// one analysis: returns {rms, f|null}
+function analyse() {
+  an.getFloatTimeDomainData(raw);
+  let rms = 0; for (let i = 0; i < raw.length; i++) rms += raw[i] * raw[i]; rms = Math.sqrt(rms / raw.length);
+  for (let i = 0; i < ds.length; i++) ds[i] = 0.5 * (raw[2 * i] + raw[2 * i + 1]);
+  let f = null;
+  if (rms > voice.gate) { const r = yin(ds, ac.sampleRate / 2); if (r && r.clarity > 0.72 && r.f > 60 && r.f < 900) f = r.f; }
+  return { rms, f };
+}
+const voice = { gate: 0.008, base: 150, thr: 3, state: 'none', cand: 'none', candN: 0, offN: 0, semis: null, rms: 0, voiced: false };
+function voiceTick() {
+  const r = analyse(); voice.rms = r.rms;
+  let rawState = 'off';
+  if (r.f) {
+    const s = 12 * Math.log2(r.f / voice.base); voice.semis = s;
+    const thr = voice.thr, hy = 0.7;
+    if (voice.state === 'high' && s > thr - hy) rawState = 'high';
+    else if (voice.state === 'low' && s < -thr + hy) rawState = 'low';
+    else rawState = s >= thr ? 'high' : s <= -thr ? 'low' : 'mid';
+  } else if (r.rms < voice.gate) voice.semis = null;
+  voice.voiced = rawState !== 'off';
+  if (rawState === 'off') { voice.offN++; if (voice.offN >= 4) voice.state = 'none'; return; }
+  voice.offN = 0;
+  const target = rawState === 'mid' ? 'none' : rawState;
+  if (target === voice.state) { voice.candN = 0; return; }
+  if (voice.cand === target) voice.candN++; else { voice.cand = target; voice.candN = 1; }
+  if (voice.candN >= 2) { voice.state = target; voice.candN = 0; }
+}
+
+// ================= CALIBRATION =================
+function median(a) { const b = a.slice().sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; }
+function sampleFor(ms, onFrame) {
+  return new Promise(res => { const t0 = performance.now(); (function step() { const now = performance.now(); onFrame((now - t0) / ms); if (now - t0 >= ms) return res(); requestAnimationFrame(step); })(); });
+}
+async function calibrate() {
+  show('scrCal'); $('calErr').textContent = ''; $('calRetry').classList.add('hidden');
+  $('calTitle').textContent = 'Калибровка 1/2'; $('calText').textContent = 'Помолчи секунду — слушаю тишину вокруг…'; $('calVal').textContent = '🤫';
+  const noise = [];
+  await sampleFor(1200, p => { an.getFloatTimeDomainData(raw); let s = 0; for (let i = 0; i < raw.length; i++) s += raw[i] * raw[i]; noise.push(Math.sqrt(s / raw.length)); $('calRing').style.setProperty('--p', Math.min(100, p * 100) + '%'); });
+  voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5));
+  $('calTitle').textContent = 'Калибровка 2/2'; $('calText').innerHTML = 'Теперь скажи обычное, спокойное<br><b>«Мууууу»</b> (2–3 секунды)';
+  const fs = []; let started = false, t0 = 0;
+  await new Promise(res => {
+    const tStart = performance.now();
+    (function step() {
+      const now = performance.now(); const r = analyse();
+      if (r.f) { fs.push(r.f); if (!started) { started = true; t0 = now; } $('calVal').textContent = Math.round(r.f) + ' Гц'; }
+      else if (!started) $('calVal').textContent = '🎤';
+      const p = started ? Math.min(1, (now - t0) / 2500) : 0; $('calRing').style.setProperty('--p', p * 100 + '%');
+      if ((started && now - t0 > 2500) || now - tStart > 9000) return res();
+      requestAnimationFrame(step);
+    })();
+  });
+  if (fs.length < 25) {
+    $('calErr').textContent = 'Не расслышала 🙉 Попробуй погромче и подольше.'; $('calRetry').classList.remove('hidden');
+    return false;
   }
+  voice.base = median(fs);
+  try { localStorage.setItem('moo_base', String(voice.base)); localStorage.setItem('moo_gate', String(voice.gate)); } catch(e){}
+  return true;
+}
+$('calRetry').onclick = () => runCalibration();
+async function runCalibration() { const ok = await calibrate(); if (ok) showReady(); }
+function noteName(f) { const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']; const m = Math.round(69 + 12 * Math.log2(f / 440)); return N[(m % 12 + 12) % 12] + (Math.floor(m / 12) - 1); }
+let readyLoop = false;
+function showReady() {
+  show('scrReady'); $('hud').classList.remove('hidden');
+  $('baseLbl').textContent = Math.round(voice.base) + ' Гц (' + noteName(voice.base) + ')';
+  readyLoop = true;
+  (function step() { if (!readyLoop) return; voiceTick(); updateMeter(); requestAnimationFrame(step); })();
+}
+$('optThr').oninput = e => { voice.thr = +e.target.value; $('thrLbl1').textContent = $('thrLbl2').textContent = voice.thr; layoutMeter(); };
+$('goRecal').onclick = () => { readyLoop = false; runCalibration(); };
+const MR = 10;
+function layoutMeter() { const h = Math.max(0, (MR - voice.thr) / (2 * MR) * 100); $('zh').style.height = h + '%'; $('zl').style.height = h + '%'; }
+layoutMeter();
+function updateMeter() {
+  const col = voice.state === 'high' ? '#e2504a' : voice.state === 'low' ? '#3b6fd8' : voice.voiced ? '#7bb661' : '#b9b6ae';
+  $('micDot').style.background = col;
+  $('micLbl').textContent = mode === 'buttons' ? (ctrlState === 'high' ? 'высоко ↑' : ctrlState === 'low' ? 'низко ↓' : 'кнопки') : voice.state === 'high' ? 'высоко ↑' : voice.state === 'low' ? 'низко ↓' : voice.voiced ? 'обычно' : 'тишина';
+  const mk = $('mk');
+  if (mode === 'voice' && voice.semis !== null && voice.voiced) { const s = Math.max(-MR, Math.min(MR, voice.semis)); mk.style.display = 'block'; mk.style.top = ((MR - s) / (2 * MR) * 100) + '%'; mk.style.marginTop = '-3px'; }
+  else mk.style.display = 'none';
+}
 
-  const info = {
-    'Где открыто': inTG ? 'Telegram (' + tg.platform + ', версия API ' + tg.version + ')' : 'обычный браузер',
-    'Устройство': navigator.userAgent,
-    'HTTPS-контекст': String(window.isSecureContext),
-    'mediaDevices': String(!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
-    'AudioContext': String(!!(window.AudioContext || window.webkitAudioContext))
-  };
-  function renderInfo() { $('info').innerHTML = ''; for (const k in info) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = info[k]; $('info').append(dt, dd); } }
-  renderInfo();
-  log('Страница загружена. ' + info['Где открыто']);
+// ================= CAMERA =================
+let camStream = null;
+async function startCam() {
+  if (camStream && camStream.active) return true;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } } });
+    const v = $('camv'); v.srcObject = camStream; v.style.display = 'block'; await v.play().catch(() => {});
+    return true;
+  } catch (e) { $('camv').style.display = 'none'; camStream = null; return false; }
+}
+function stopCam() { if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('camv').style.display = 'none'; }
 
-  // ---------- Pitch detection (YIN) ----------
-  function yin(buf, sr) {
-    const half = buf.length >> 1;
-    const tMin = Math.floor(sr / 1000), tMax = Math.min(half - 1, Math.floor(sr / 60));
-    const d = new Float32Array(tMax + 1);
-    for (let tau = 1; tau <= tMax; tau++) { let s = 0; for (let i = 0; i < half; i++) { const x = buf[i] - buf[i + tau]; s += x * x; } d[tau] = s; }
-    let run = 0, best = -1; const c = new Float32Array(tMax + 1); c[0] = 1;
-    for (let tau = 1; tau <= tMax; tau++) { run += d[tau]; c[tau] = run ? d[tau] * tau / run : 1; }
-    for (let tau = tMin; tau <= tMax; tau++) { if (c[tau] < 0.15) { while (tau + 1 <= tMax && c[tau + 1] < c[tau]) tau++; best = tau; break; } }
-    if (best < 0) return null;
-    const x0 = best > 1 ? c[best - 1] : c[best], x2 = best < tMax ? c[best + 1] : c[best];
-    const den = x0 + x2 - 2 * c[best];
-    const shift = den ? (x0 - x2) / (2 * den) : 0;
-    return { f: sr / (best + shift), clarity: 1 - c[best] };
-  }
-  const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  function noteOf(f) { const m = 69 + 12 * Math.log2(f / 440); const r = Math.round(m); return { name: NAMES[(r % 12 + 12) % 12] + (Math.floor(r / 12) - 1), cents: Math.round((m - r) * 100), midi: m }; }
+// ================= 3D =================
+const T = THREE;
+const OUT='#2d2a32',WHITE='#fbfaf5',PINK='#f2a7b5',HORN='#efe0bb',HORNT='#6b5a45',HOOF='#4a3a33',BELL='#f2c14e',COLLAR='#d8524a',WOOD='#d0915a',WOODD='#a8693a';
+const gm=(()=>{const t=new T.DataTexture(new Uint8Array([120,190,255]),3,1,T.LuminanceFormat);t.minFilter=t.magFilter=T.NearestFilter;t.needsUpdate=true;return t;})();
+const VS='uniform float w;void main(){vec3 p=position+normal*w;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);}',FS='uniform vec3 c;void main(){gl_FragColor=vec4(c,1.0);}';
+const silMat=new T.ShaderMaterial({uniforms:{c:{value:new T.Color(OUT)},w:{value:0.026}},vertexShader:VS,fragmentShader:FS,side:T.BackSide,depthWrite:false});
+const locMat=new T.ShaderMaterial({uniforms:{c:{value:new T.Color(OUT)},w:{value:0.015}},vertexShader:VS,fragmentShader:FS,side:T.BackSide});
+const objMat=new T.ShaderMaterial({uniforms:{c:{value:new T.Color('#5b3a20')},w:{value:0.022}},vertexShader:VS,fragmentShader:FS,side:T.BackSide});
+const toon=(c,map)=>new T.MeshToonMaterial({color:c,gradientMap:gm,map:map||null});
+const flat=c=>new T.MeshBasicMaterial({color:c});
+function part(geo,mat,parent,pos,scl,ol){const m=new T.Mesh(geo,mat);m.renderOrder=1;if(pos)m.position.set(pos[0],pos[1],pos[2]);if(scl)m.scale.set(scl[0],scl[1],scl[2]);parent.add(m);
+if(ol==='sil'||ol===undefined){const o=new T.Mesh(geo,silMat);o.renderOrder=0;m.add(o);}else if(ol==='loc'){const o=new T.Mesh(geo,locMat);o.renderOrder=1;m.add(o);}else if(ol==='obj'){const o=new T.Mesh(geo,objMat);o.renderOrder=1;m.add(o);}return m;}
+function barrel(L,R,p){const pts=[];const n=28;for(let i=0;i<=n;i++){const y=-L/2+L*i/n;const r=R*Math.pow(Math.max(0,1-Math.pow(Math.abs(2*y/L),p)),1/p);pts.push(new T.Vector2(Math.max(r,0.0001),y));}const g=new T.LatheGeometry(pts,40);g.rotateZ(-Math.PI/2);g.computeVertexNormals();return g;}
+function holsteinTex(){const W=1024,H=512;const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');x.fillStyle=WHITE;x.fillRect(0,0,W,H);x.fillStyle=OUT;
+let r=7;const rnd=()=>{r=(r*16807)%2147483647;return r/2147483647;};const PU=451,PV=320;
+const P=[[0.05,0.3,0.3],[0.12,0.78,0.24],[0.78,0.22,0.26],[0.72,0.7,0.22],[0.5,0.38,0.3],[0.55,0.82,0.2],[0.95,0.6,0.16]];
+for(const p of P){const n=9;const pts=[];for(let i=0;i<n;i++){const a=i/n*6.283+rnd()*0.5,d=p[2]*(0.25+rnd()*0.35);pts.push([Math.cos(a)*d,Math.sin(a)*d,p[2]*(0.3+rnd()*0.25)]);}pts.push([0,0,p[2]*0.55]);
+for(const q of pts)for(const off of[-W,0,W]){x.beginPath();x.ellipse(p[0]*W+q[0]*PU+off,p[1]*H+q[1]*PV,q[2]*PU,q[2]*PV,0,0,6.283);x.fill();}}
+const t=new T.CanvasTexture(c);t.wrapS=T.RepeatWrapping;t.anisotropy=4;return t;}
+const L1=0.31,L2=0.27,HOOFH=0.07,HIPY=-0.17,S=0.78;
+function leg(parent,pos){const hip=new T.Group();hip.position.set(pos[0],pos[1],pos[2]);parent.add(hip);
+const ug=new T.CylinderGeometry(0.12,0.078,L1,14);ug.translate(0,-L1/2,0);part(ug,toon(WHITE),hip);
+const knee=new T.Group();knee.position.y=-L1;hip.add(knee);part(new T.SphereGeometry(0.078,12,10),toon(WHITE),knee);
+const lg=new T.CylinderGeometry(0.074,0.068,L2,14);lg.translate(0,-L2/2,0);part(lg,toon(WHITE),knee);
+const hg=new T.CylinderGeometry(0.074,0.086,HOOFH,14);hg.translate(0,-L2-HOOFH/2,0);const hoof=part(hg,toon(HOOF),knee);
+return{hip,knee,hoof};}
+function bellGeo(){const p=[[0.001,0.0],[0.03,-0.005],[0.04,-0.03],[0.045,-0.065],[0.062,-0.1],[0.066,-0.112],[0.001,-0.112]].map(a=>new T.Vector2(a[0],a[1]));const g=new T.LatheGeometry(p,20);g.computeVertexNormals();return g;}
+function hornGeo(s){const pts=[new T.Vector3(0,0,0),new T.Vector3(0.0,0.03,s*0.1),new T.Vector3(0.03,0.1,s*0.17),new T.Vector3(0.08,0.17,s*0.17),new T.Vector3(0.12,0.2,s*0.13)];const cur=new T.CatmullRomCurve3(pts);
+const g=new T.TubeGeometry(cur,20,0.034,12,false);const pos=g.attributes.position,nrm=g.attributes.normal;const segs=20,rad=12;
+for(let i=0;i<=segs;i++){const tt=i/segs;const p=cur.getPoint(tt);const sc=1-0.6*tt;for(let j=0;j<=rad;j++){const k=i*(rad+1)+j;const vx=pos.getX(k)-p.x,vy=pos.getY(k)-p.y,vz=pos.getZ(k)-p.z;pos.setXYZ(k,p.x+vx*sc,p.y+vy*sc,p.z+vz*sc);}}
+pos.needsUpdate=true;g.computeVertexNormals();return{g,tip:cur.getPoint(1)};}
+function makeCow(){const root=new T.Group();root.scale.setScalar(S);const torso=new T.Group();root.add(torso);
+part(barrel(1.6,0.42,2.6),toon('#ffffff',holsteinTex()),torso,[0,0,0],[1,0.95,0.78]);
+part(new T.SphereGeometry(0.14,14,10),toon(PINK),torso,[-0.36,-0.32,0],[1.1,0.8,1],'loc');
+for(const a of[[-0.31,0.05],[-0.41,0.05],[-0.31,-0.05],[-0.41,-0.05]])part(new T.CylinderGeometry(0.02,0.016,0.08,8),toon(PINK),torso,[a[0],-0.42,a[1]],null,false);
+const legs=[leg(torso,[0.52,HIPY,0.18]),leg(torso,[0.52,HIPY,-0.18]),leg(torso,[-0.55,HIPY,0.18]),leg(torso,[-0.55,HIPY,-0.18])];
+const neckG=new T.Group();neckG.position.set(0.64,0.1,0);torso.add(neckG);
+const neck=part(new T.CylinderGeometry(0.16,0.26,0.55,16),toon(WHITE),neckG,[0.14,0.17,0]);neck.rotation.z=-0.85;
+const collar=part(new T.TorusGeometry(0.215,0.032,10,28),toon(COLLAR),neck,[0,-0.05,0],null,'loc');collar.rotation.x=Math.PI/2;
+const bellP=new T.Group();bellP.position.set(0.21,-0.06,0);neck.add(bellP);const bellS=new T.Group();bellP.add(bellS);
+part(bellGeo(),toon(BELL),bellS,[0,-0.02,0],null,'loc');part(new T.SphereGeometry(0.02,8,6),flat('#8a6a1a'),bellS,[0,-0.135,0],null,false);
+const head=new T.Group();head.position.set(0.36,0.33,0);head.scale.setScalar(0.88);neckG.add(head);
+part(new T.SphereGeometry(0.27,28,20),toon(WHITE),head,[0.06,0.02,0],[1.12,0.95,0.88]);
+part(new T.SphereGeometry(0.2,24,16),toon(PINK),head,[0.34,-0.12,0],[1.15,0.78,1.0],'loc');
+for(const s of[-1,1])part(new T.SphereGeometry(0.028,10,8),flat('#c4697d'),head,[0.55,-0.07,s*0.075],[0.6,1.2,1],false);
+const mouth=new T.Group();mouth.position.set(0.52,-0.21,0);head.add(mouth);const mi=new T.Mesh(new T.SphereGeometry(0.07,14,10),flat('#7a2f40'));mi.renderOrder=2;mouth.add(mi);mouth.scale.set(0.45,0.05,1);
+const eyes=[];for(const s of[-1,1]){const e=new T.Group();e.position.set(0.19,0.08,s*0.17);head.add(e);
+part(new T.SphereGeometry(0.068,18,14),toon('#ffffff'),e,null,null,'loc');part(new T.SphereGeometry(0.045,14,10),flat(OUT),e,[0.03,0.004,s*0.04],null,false);part(new T.SphereGeometry(0.014,8,6),flat('#ffffff'),e,[0.05,0.024,s*0.067],null,false);const lid=part(new T.SphereGeometry(0.074,16,8,0,Math.PI*2,0,Math.PI*0.36),toon(WHITE),e,null,null,'loc');lid.rotation.set(s*0.5,0,-0.35);eyes.push(e);}
+const ears=[];for(const s of[-1,1]){const ear=new T.Group();ear.position.set(-0.05,0.1,s*0.2);head.add(ear);
+part(new T.SphereGeometry(0.14,16,12),toon(WHITE),ear,[0,0,s*0.12],[0.5,0.26,1]);part(new T.SphereGeometry(0.09,12,10),toon(PINK),ear,[0.035,0.005,s*0.13],[0.3,0.18,0.85],false);ears.push({ear,s});}
+for(const s of[-1,1]){const h=hornGeo(s);const hm=part(h.g,toon(HORN),head,[-0.02,0.21,s*0.1]);part(new T.SphereGeometry(0.014,8,6),toon(HORNT),hm,[h.tip.x,h.tip.y,h.tip.z]);const hb=part(new T.SphereGeometry(0.034,10,8),toon(HORN),hm,[0,0,0],null,'sil');}
+for(const a of[[0.02,0.25,0.0,0.2],[-0.02,0.26,0.04,-0.3],[-0.01,0.26,-0.04,0.35]]){const tf=part(new T.ConeGeometry(0.03,0.09,8),toon(WHITE),head,[a[0],a[1],a[2]]);tf.rotation.set(a[3],0,-0.5);}
+const tailRoot=new T.Group();tailRoot.position.set(-0.72,0.12,0);torso.add(tailRoot);const tail=[];let prev=tailRoot;
+for(let i=0;i<5;i++){const g=new T.Group();g.position.y=i?-0.095:0;prev.add(g);const r0=0.04-i*0.004,r1=r0-0.004;const sg=new T.CylinderGeometry(r0,r1,0.115,10);sg.translate(0,-0.05,0);part(sg,toon(WHITE),g);tail.push(g);prev=g;}
+part(new T.SphereGeometry(0.048,12,10),toon(OUT),prev,[0,-0.1,0],[1,1.45,1]);
+root.userData={torso,legs,neckG,head,eyes,ears,tail,bellS,mouth};
+return root;}
 
-  // ---------- Mic ----------
-  let ac = null, stream = null, an = null, buf = null, running = false, hist = [], voicedFrames = 0, lastLog = 0;
-  async function startMic() {
-    $('micBtn').disabled = true;
-    $('micState').textContent = 'Запрашиваю доступ к микрофону…';
-    log('Запрос микрофона (getUserMedia audio)…');
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      const tr = stream.getAudioTracks()[0];
-      log('Микрофон разрешён: ' + (tr ? tr.label || 'без названия' : 'нет трека'), 'good');
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ac = new AC();
-      if (ac.state === 'suspended') await ac.resume();
-      const src = ac.createMediaStreamSource(stream);
-      an = ac.createAnalyser(); an.fftSize = 2048; src.connect(an);
-      buf = new Float32Array(an.fftSize);
-      info['Частота дискретизации'] = ac.sampleRate + ' Гц'; renderInfo();
-      running = true;
-      $('micState').innerHTML = '<span class="good">Микрофон работает.</span> Помычи низко и высоко.';
-      $('micBtn').textContent = 'Выключить микрофон'; $('micBtn').disabled = false;
-      tr && tr.addEventListener('ended', () => log('Трек микрофона завершился (ended)', 'bad'));
-      loop();
-    } catch (e) {
-      log('ОШИБКА микрофона: ' + e.name + ' — ' + e.message, 'bad');
-      $('micState').innerHTML = '<span class="bad">Не получилось: ' + e.name + '</span>';
-      $('micBtn').disabled = false;
+const cv = $('gl');
+const R = new T.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+R.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); R.setClearColor(0x000000, 0);
+const scene = new T.Scene(); scene.add(new T.HemisphereLight('#ffffff', '#b8c4b0', 0.55)); const dl = new T.DirectionalLight('#ffffff', 0.75); dl.position.set(-2, 5, 4); scene.add(dl);
+const grassC = document.createElement('canvas'); grassC.width = 256; grassC.height = 256; { const x = grassC.getContext('2d'); x.fillStyle = '#62ad4b'; x.fillRect(0, 0, 256, 256); x.fillStyle = '#579f41'; for (let i = 0; i < 26; i++) x.fillRect((i * 53) % 256, (i * 37) % 256, 26, 5); x.fillStyle = '#70b957'; for (let i = 0; i < 20; i++) x.fillRect((i * 71 + 20) % 256, (i * 29 + 11) % 256, 18, 4); }
+const grassT = new T.CanvasTexture(grassC); grassT.wrapS = grassT.wrapT = T.RepeatWrapping; grassT.repeat.set(16, 1);
+const TL = 70, TW = 3.2, TX0 = -10;
+const track = new T.Mesh(new T.BoxGeometry(TL, 0.3, TW), [toon('#5a9e45'), toon('#5a9e45'), new T.MeshToonMaterial({ map: grassT, gradientMap: gm }), toon('#5a9e45'), toon('#4d8c3b'), toon('#4d8c3b')]);
+track.position.set(TX0 + TL / 2, -0.15, 0); track.renderOrder = -1; scene.add(track);
+const cow = makeCow(); scene.add(cow); const U = cow.userData;
+const shadow = new T.Mesh(new T.CircleGeometry(0.6, 32), new T.MeshBasicMaterial({ color: '#2f5a25', transparent: true, opacity: 0.28, depthWrite: false })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.006; shadow.renderOrder = -1; scene.add(shadow);
+const cam = new T.PerspectiveCamera(38, 9 / 16, 0.1, 90);
+const HFOV = 2 * Math.atan(Math.tan(19 * Math.PI / 180) * 9 / 16);
+function resize() { const w = cv.clientWidth || window.innerWidth, h = cv.clientHeight || window.innerHeight; R.setSize(w, h, false); cam.aspect = w / h; cam.fov = Math.min(70, 2 * Math.atan(Math.tan(HFOV / 2) / cam.aspect) * 180 / Math.PI); cam.updateProjectionMatrix(); }
+resize(); window.addEventListener('resize', resize); if (tg && tg.onEvent) { try { tg.onEvent('viewportChanged', resize); } catch(e){} }
+const FENCE = { post: 0.46, rails: [0.34, 0.19] }, BAR = { post: 1.12, rails: [1.0, 0.89] }, ROOF = 0.89;
+const postG = new T.CylinderGeometry(0.06, 0.07, 1, 10); postG.translate(0, 0.5, 0); const railG = new T.BoxGeometry(0.09, 0.08, TW + 0.1);
+const woodM = toon(WOOD), woodDM = toon(WOODD), dustM = toon('#efe6cf'), bankM = toon('#8a6a3e'), wSide = toon('#3f8fc4');
+const waterC = document.createElement('canvas'); waterC.width = 128; waterC.height = 128; { const x = waterC.getContext('2d'); x.fillStyle = '#5db6e8'; x.fillRect(0, 0, 128, 128); x.fillStyle = '#8fd0f2'; for (let i = 0; i < 9; i++) x.fillRect((i * 47) % 128, (i * 29) % 128, 22, 4); }
+const waterT = new T.CanvasTexture(waterC); waterT.wrapS = waterT.wrapT = T.RepeatWrapping;
+function makeObs(type, len) {
+  const g = new T.Group();
+  if (type === 'fence' || type === 'bar') { const sp = type === 'fence' ? FENCE : BAR; for (const s of [-1, 1]) part(postG, woodDM, g, [0, 0, s * (TW / 2 - 0.05)], [1, sp.post, 1], 'obj'); for (const h of sp.rails) part(railG, woodM, g, [0, h, 0], null, 'obj'); }
+  else if (type === 'ditch') { const wt = waterT.clone(); wt.needsUpdate = true; wt.repeat.set(len / 1.5, TW / 1.5); const w = new T.Mesh(new T.BoxGeometry(len, 0.02, TW + 0.02), [wSide, wSide, new T.MeshToonMaterial({ map: wt, gradientMap: gm }), wSide, wSide, wSide]); w.position.set(len / 2, 0.005, 0); w.renderOrder = -1; g.add(w); g.userData.wt = wt; for (const ex of [0, len]) part(new T.BoxGeometry(0.12, 0.06, TW + 0.02), bankM, g, [ex, 0.0, 0], null, 'obj'); }
+  else if (type === 'roof') { const n = Math.max(2, Math.round(len / 2.2) + 1); for (let i = 0; i < n; i++) { const x = len * i / (n - 1); for (const s of [-1, 1]) part(postG, woodDM, g, [x, 0, s * (TW / 2 - 0.05)], [1, ROOF + 0.2, 1], 'obj'); } for (const s of [-1, 1]) part(new T.BoxGeometry(len + 0.3, 0.12, 0.12), woodDM, g, [len / 2, ROOF + 0.14, s * (TW / 2 - 0.05)], null, 'obj'); const nb = Math.max(2, Math.round(len / 0.75) + 1); for (let i = 0; i < nb; i++) part(new T.BoxGeometry(0.12, 0.1, TW + 0.3), woodM, g, [len * i / (nb - 1), ROOF + 0.05, 0], null, 'obj'); }
+  scene.add(g); return g;
+}
+function disposeObs(g) { scene.remove(g); g.traverse(o => { if (o.geometry && o.geometry !== postG && o.geometry !== railG) o.geometry.dispose(); }); if (g.userData.wt) g.userData.wt.dispose(); }
+
+// ================= GAME =================
+const dustG = new T.SphereGeometry(0.07, 8, 6);
+const JV = 3.8;
+let mode = 'voice', ctrlState = 'none';
+let G = null; // game state
+function newState() {
+  return { t: 0, speed: 4, dist: 0, lives: 3, inv: 0, obs: [], nextSpawn: 9, script: ['fence', 'bar', 'ditch', 'roof'], passed: 0, over: false, shake: 0, dust: [],
+    y: 0, vy: 0, c: 0, cv: 0, air: 0, av: 0, tilt: 0, tv: 0, ph: 0, m: 0, mv: 0, ctl: 'none', glide: 0, bell: 0, bv: 0,
+    tA: [0,0,0,0,0], tV: [0,0,0,0,0], tZ: [0,0,0,0,0], tZV: [0,0,0,0,0], look: 0, lookT: 4, hy: 0, hyv: 0, ears: [0, 0], earsV: [0, 0] };
+}
+function clearObs() { if (G) { for (const o of G.obs) disposeObs(o.g); for (const p of G.dust) scene.remove(p.m); } }
+function sp(o, k, v, tg_, K, D, dt) { o[v] += (K * (tg_ - o[k]) - D * o[v]) * dt; o[k] += o[v] * dt; }
+function legV(th, k) { return L1 * Math.cos(th) + L2 * Math.cos(th - k) + HOOFH; }
+function pose(st, dt) {
+  const c = st.c, a = Math.max(0, Math.min(1, st.air)); const off = [0, Math.PI, Math.PI, 0];
+  U.legs.forEach((l, i) => { const ph = st.ph + off[i]; const front = i < 2;
+    let th = Math.sin(ph) * 0.42 * (1 - 0.5 * c), k = Math.max(0, Math.cos(ph)) * 1.0 * (1 - 0.4 * c);
+    th += c * (front ? 0.8 : 0.9); k += c * (front ? 1.6 : 1.8);
+    const pd = st.glide; const tth = (front ? 0.85 : -0.55) + Math.sin(ph) * 0.45 * pd, tk = (front ? 1.7 : 0.5) + Math.max(0, Math.cos(ph)) * 0.7 * pd;
+    th = th + (tth - th) * a; k = k + (tk - k) * a; l.hip.rotation.z = th; l.knee.rotation.z = -k; });
+  U.torso.position.y = legV(0.9 * c, 1.8 * c) - HIPY + st.y / S + Math.abs(Math.sin(st.ph)) * 0.03 * (1 - c) * (1 - a);
+  U.torso.rotation.z = st.tilt; U.neckG.rotation.z = -1.0 * c + 0.15 * a * (st.vy > 0 ? 1 : -0.5);
+  U.head.rotation.set(0, st.hy, st.m * 0.25 - 0.05 + Math.sin(st.ph * 2) * 0.03 * (1 - a) - 0.2 * c);
+  U.mouth.scale.set(0.45 + st.m * 0.25, 0.05 + st.m * 0.95, 1);
+  for (let k2 = 0; k2 < 2; k2++) { const e = U.ears[k2]; st.earsV[k2] += (-60 * st.ears[k2] - 5 * st.earsV[k2]) * dt - st.vy * 0.2 * dt * (k2 ? 1 : -1); st.ears[k2] += st.earsV[k2] * dt; e.ear.rotation.set(e.s * (0.3 + st.ears[k2] * 0.6 + 0.5 * a), st.ears[k2] * 0.4, 0); }
+  for (let i = 0; i < U.tail.length; i++) { const tx = i === 0 ? Math.sin(st.ph) * 0.5 * (1 - a) + Math.sin(st.t * 1.7) * 0.15 : st.tA[i - 1] * 0.7; st.tV[i] += (24 * (tx - st.tA[i]) - 2.4 * st.tV[i]) * dt; st.tA[i] += st.tV[i] * dt;
+    const tz = i === 0 ? (-0.5 - 1.0 * a + Math.cos(st.ph * 2) * 0.2 * (1 - a)) : 0.1 + st.tZ[i - 1] * 0.5; st.tZV[i] += (26 * (tz - st.tZ[i]) - 2.6 * st.tZV[i]) * dt - (i === 0 ? st.vy * 1.2 * dt : 0); st.tZ[i] += st.tZV[i] * dt;
+    U.tail[i].rotation.x = st.tA[i]; U.tail[i].rotation.z = st.tZ[i]; }
+  st.bv += (-40 * st.bell - 2.5 * st.bv) * dt + Math.cos(st.ph * 2) * 1.2 * dt * (1 - a) - st.vy * 0.3 * dt; st.bell += st.bv * dt;
+  U.bellS.rotation.z = -(U.torso.rotation.z + U.neckG.rotation.z - 0.85) + st.bell;
+  const bl = (st.t % 3.1) < 0.11 ? 0.12 : 1; for (const e of U.eyes) e.scale.y = bl;
+  const s = Math.max(0.35, 1 - st.y * 0.6); shadow.scale.set(1.5 * s, 0.62 * s, 1); shadow.material.opacity = 0.28 * s;
+  cow.visible = st.inv > 0 ? Math.floor(st.inv * 12) % 2 === 0 : true;
+}
+const _v = new T.Vector3();
+function collide(st) {
+  for (const o of st.obs) {
+    if (o.hit || o.d > 1.4 || o.d + o.len < -1.4) continue;
+    let hit = false;
+    if (o.type === 'fence' || o.type === 'ditch') {
+      const lo = o.type === 'fence' ? o.d - 0.1 : o.d + 0.05, hi = o.type === 'fence' ? o.d + 0.1 : o.d + o.len - 0.05, yl = o.type === 'fence' ? FENCE.rails[0] + 0.04 : 0.05;
+      for (const l of U.legs) { l.hoof.getWorldPosition(_v); if (_v.x > lo && _v.x < hi && _v.y < yl) { hit = true; break; } }
+    } else {
+      const lim = (o.type === 'bar' ? BAR.rails[1] : ROOF) - 0.04; const pts = [];
+      U.head.getWorldPosition(_v); pts.push(_v.clone().add(new T.Vector3(0, 0.27 * S, 0)));
+      U.torso.getWorldPosition(_v); for (const dx of [-0.6, 0, 0.6]) pts.push(new T.Vector3(_v.x + dx * S, _v.y + 0.4 * S, 0));
+      const lo = o.type === 'bar' ? o.d - 0.1 : o.d - 0.12, hi = o.type === 'bar' ? o.d + 0.1 : o.d + o.len + 0.12;
+      for (const q of pts) if (q.x > lo && q.x < hi && q.y > lim) { hit = true; break; }
     }
+    if (hit) { o.hit = 1; if (st.inv <= 0) damage(st, o.type); }
   }
-  function stopMic(reason) {
-    running = false;
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    if (ac) ac.close();
-    stream = null; ac = null;
-    $('micBtn').textContent = 'Включить микрофон';
-    $('micState').textContent = 'Микрофон выключен' + (reason ? ' (' + reason + ')' : '') + '.';
-    log('Микрофон выключен' + (reason ? ': ' + reason : ''));
+}
+function damage(st, type) {
+  st.lives--; st.inv = 1.6; st.shake = 0.35; haptic('err');
+  toast(type === 'ditch' ? 'Плюх! 💦' : 'Ой! 💥');
+  renderHearts();
+  if (st.lives <= 0) gameOver();
+}
+function renderHearts() { $('hearts').textContent = '❤️'.repeat(Math.max(0, G.lives)) + '🤍'.repeat(3 - Math.max(0, G.lives)); }
+function control() { return mode === 'voice' ? voice.state : ctrlState; }
+function update(st, dt) {
+  st.t += dt; st.speed = Math.min(8, 4 + st.t * 4 / 180); st.dist += st.speed * dt; grassT.offset.x = (st.dist / TL * 16) % 1;
+  if (st.inv > 0) st.inv -= dt; if (st.shake > 0) st.shake -= dt;
+  st.nextSpawn -= st.speed * dt;
+  if (st.nextSpawn <= 0) {
+    let type; if (st.script.length) type = st.script.shift(); else { const r = Math.random(); type = r < 0.25 ? 'fence' : r < 0.5 ? 'ditch' : r < 0.75 ? 'bar' : 'roof'; }
+    const early = st.t < 40;
+    const len = (type === 'ditch' || type === 'roof') ? st.speed * (early ? 0.6 + Math.random() * 0.6 : 0.5 + Math.random() * 2.2) : 0;
+    st.obs.push({ d: 30, len, type, g: makeObs(type, len) });
+    st.nextSpawn = len + st.speed * (1.7 + Math.random() * 1.2 + Math.max(0, 1.5 - st.t / 30));
   }
-  $('micBtn').onclick = () => running ? stopMic() : startMic();
-  document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopMic('приложение ушло в фон'); });
+  for (const o of st.obs) { o.d -= st.speed * dt; if (o.g.userData.wt) o.g.userData.wt.offset.y = (st.t * 0.25) % 1; if (!o.counted && o.d + o.len < -1.2) { o.counted = 1; if (!o.hit) st.passed++; } }
+  for (const o of st.obs) if (o.d + o.len < -9) { disposeObs(o.g); o.dead = 1; } st.obs = st.obs.filter(o => !o.dead);
+  const ctl = control(); st.ctl = ctl;
+  const grounded = st.y <= 0 && st.vy <= 0;
+  if (ctl === 'high' && grounded && st.c < 0.3) { st.vy = JV; haptic('light'); }
+  if (st.y > 0 || st.vy > 0) {
+    if (ctl === 'high') { if (st.vy > 0) st.vy -= 8 * dt; else st.vy = Math.max(st.vy - 3 * dt, -0.12); }
+    else if (ctl === 'low') st.vy -= 40 * dt; else st.vy -= 20 * dt;
+    st.y += st.vy * dt;
+    if (st.y <= 0) { st.y = 0; const imp = -st.vy; st.vy = 0; st.cv += Math.min(6, imp * 1.1); if (imp > 1) for (let i = 0; i < 6; i++) { const m = new T.Mesh(dustG, dustM); m.position.set(-0.5 + Math.random() * 1.1, 0.05, (Math.random() - 0.5) * 0.7); scene.add(m); st.dust.push({ m, l: 0.5, vx: -st.speed * 0.4 - Math.random(), vy: 0.6 + Math.random() * 0.6 }); } }
+  }
+  sp(st, 'c', 'cv', ctl === 'low' && st.y <= 0.02 ? 1 : 0, 70, 10, dt); sp(st, 'air', 'av', st.y > 0.03 ? 1 : 0, 160, 22, dt);
+  sp(st, 'tilt', 'tv', st.y > 0 ? Math.max(-0.3, Math.min(0.3, st.vy * 0.07)) : -0.04 * st.c, 90, 13, dt);
+  const mouthT = mode === 'voice' ? (voice.voiced ? Math.min(1, 0.4 + voice.rms * 8) : 0) : (ctl !== 'none' ? 0.8 + 0.15 * Math.sin(st.t * 22) : 0);
+  sp(st, 'm', 'mv', mouthT, 140, 16, dt);
+  st.glide += ((st.y > 0.05 && st.vy < 0.6 && ctl === 'high' ? 1 : 0) - st.glide) * Math.min(1, dt * 6);
+  st.ph += dt * Math.PI * 2 * (2.0 + st.speed * 0.12) * (1 - 0.3 * st.c) * (1 - 0.85 * Math.min(1, st.air) * (1 - st.glide * 0.7));
+  st.lookT -= dt; if (st.lookT <= 0) { st.look = st.look ? 0 : 1; st.lookT = st.look ? 0.9 + Math.random() * 0.6 : 3 + Math.random() * 4; } sp(st, 'hy', 'hyv', st.look * 0.55, 30, 8, dt);
+  for (const p of st.dust) { p.l -= dt; p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.vy -= 2 * dt; const s = Math.max(0.01, p.l / 0.5); p.m.scale.setScalar(0.6 + (1 - s) * 0.8); if (p.l <= 0) scene.remove(p.m); } st.dust = st.dust.filter(p => p.l > 0);
+  pose(st, dt);
+  for (const o of st.obs) { o.g.position.x = o.d; if (o.type !== 'ditch') { const e = Math.min(1, Math.max(0, (28 - o.d) / 3)); o.g.scale.set(1, Math.max(0.001, e), 1); } }
+  collide(st);
+}
+const camBase = new T.Vector3(-9.0, 7.4, 6.6), lookBase = new T.Vector3(3.6, 1.6, -1.4); let camY = 0;
+function render() {
+  const st = G || idleState;
+  camY += (st.y * 0.3 - camY) * 0.06;
+  const sh = st.shake > 0 ? st.shake * 0.25 : 0;
+  cam.position.set(camBase.x + (Math.random() - 0.5) * sh, camBase.y + camY + (Math.random() - 0.5) * sh, camBase.z);
+  cam.lookAt(lookBase.x, lookBase.y + camY, lookBase.z); R.render(scene, cam);
+  if (G) { $('dist').textContent = Math.floor(G.dist) + ' м'; }
+}
+// idle cow on menu
+const idleState = newState();
+let running = false, paused = false, last = performance.now(), voiceEvery = 0;
+function frame(now) {
+  let dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (running && !paused && G && !G.over) {
+    if (mode === 'voice' && an) { voiceEvery ^= 1; if (voiceEvery) voiceTick(); }
+    const n = Math.ceil(dt / 0.01); for (let i = 0; i < n; i++) { update(G, dt / n); if (G.over) break; }
+    updateMeter();
+  } else if (!G) { idleState.t += dt; idleState.ph += dt * 2; pose(idleState, dt); }
+  render(); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 
-  const g = $('graph'), gc = g.getContext('2d');
-  function draw() {
-    const W = g.width, H = g.height, now = performance.now();
-    gc.clearRect(0, 0, W, H);
-    const lo = 36, hi = 84; // C2..C6
-    const y = m => H - (m - lo) / (hi - lo) * H;
-    gc.font = '22px sans-serif'; gc.fillStyle = '#9a978f'; gc.strokeStyle = '#ebe8e1'; gc.lineWidth = 1;
-    for (let m = lo; m <= hi; m += 12) { gc.beginPath(); gc.moveTo(0, y(m)); gc.lineTo(W, y(m)); gc.stroke(); gc.fillText('C' + (m / 12 - 1), 6, y(m) - 4); }
-    gc.fillStyle = '#3b6fd8';
-    for (const p of hist) { const x = W - (now - p.t) / 6000 * W; if (x < 0) continue; gc.beginPath(); gc.arc(x, y(p.m), 4, 0, 6.3); gc.fill(); }
-  }
-  function loop() {
-    if (!running) return;
-    an.getFloatTimeDomainData(buf);
-    let rms = 0; for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i]; rms = Math.sqrt(rms / buf.length);
-    $('lvl').style.width = Math.min(100, rms * 400) + '%';
-    const now = performance.now();
-    let r = null;
-    if (rms > 0.01) r = yin(buf, ac.sampleRate);
-    if (r && r.clarity > 0.8 && r.f > 60 && r.f < 1000) {
-      const n = noteOf(r.f);
-      $('hz').textContent = Math.round(r.f) + ' Гц';
-      $('nt').textContent = n.name + (n.cents >= 0 ? ' +' : ' ') + n.cents + '¢';
-      hist.push({ t: now, m: n.midi });
-      voicedFrames++;
-      if (now - lastLog > 1500) { log('Голос: ' + Math.round(r.f) + ' Гц (' + n.name + '), громкость ' + rms.toFixed(3)); lastLog = now; }
+function startGame() {
+  readyLoop = false; clearObs(); G = newState(); idleState.y = 0;
+  running = true; paused = false; show(null);
+  $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice');
+  renderHearts(); last = performance.now();
+  report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: voice.thr });
+}
+function gameOver() {
+  G.over = true; running = false; haptic('heavy');
+  const d = Math.floor(G.dist), secs = Math.round(G.t);
+  const isRec = d > record; if (isRec) { record = d; saveRecord(); }
+  $('overDist').textContent = d + ' м';
+  $('overInfo').textContent = 'Время ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') + ' · препятствий пройдено: ' + G.passed;
+  $('overRec').textContent = isRec ? '🏆 Новый рекорд!' : 'Рекорд: ' + record + ' м';
+  $('recal').classList.toggle('hidden', mode !== 'voice');
+  show('scrOver'); $('ctrl').classList.add('hidden');
+  report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: voice.thr, maxSpeed: +G.speed.toFixed(1) });
+}
+function toMenu() { running = false; clearObs(); G = null; show('scrStart'); showRecord(); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); }
+
+// ================= FLOW =================
+async function begin(m) {
+  mode = m; $('startErr').textContent = '';
+  try {
+    if (m === 'voice') {
+      await initMic();
     }
-    hist = hist.filter(p => now - p.t < 6000);
-    draw();
-    requestAnimationFrame(loop);
+    if ($('optCam').checked) { const ok = await startCam(); if (!ok) toast('Камера недоступна'); } else stopCam();
+  } catch (e) {
+    $('startErr').textContent = 'Нет доступа к микрофону (' + e.name + '). Разреши микрофон или играй кнопками.';
+    report('error', { stage: 'mic', name: e.name, message: String(e.message || '') });
+    return;
   }
-  draw();
-
-  // ---------- Camera ----------
-  let camStream = null;
-  $('camBtn').onclick = async () => {
-    if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; $('cam').style.display = 'none'; $('camBtn').textContent = 'Проверить камеру'; log('Камера выключена'); return; }
-    log('Запрос камеры (getUserMedia video)…');
-    try {
-      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-      const v = $('cam'); v.srcObject = camStream; v.style.display = 'block'; await v.play().catch(() => {});
-      const tr = camStream.getVideoTracks()[0]; const s = tr.getSettings ? tr.getSettings() : {};
-      log('Камера разрешена: ' + (s.width || '?') + '×' + (s.height || '?'), 'good');
-      $('camBtn').textContent = 'Выключить камеру';
-    } catch (e) { log('ОШИБКА камеры: ' + e.name + ' — ' + e.message, 'bad'); camStream = null; }
-  };
-
-  // ---------- Report ----------
-  $('copyBtn').onclick = async () => {
-    const rep = Object.entries(info).map(([k, v]) => k + ': ' + v).join('\n') + '\nГолосовых кадров: ' + voicedFrames + '\n\n' + lines.join('\n');
-    try { await navigator.clipboard.writeText(rep); log('Отчёт скопирован — вставь его в чат с Claude', 'good'); }
-    catch (e) { log('Не удалось скопировать автоматически (' + e.name + '). Сделай скриншот этой страницы.', 'bad'); }
-  };
+  if (m === 'voice') runCalibration(); else startGame();
+}
+$('goVoice').onclick = () => begin('voice');
+$('goButtons').onclick = () => begin('buttons');
+$('goPlay').onclick = () => startGame();
+$('again').onclick = () => startGame();
+$('recal').onclick = () => { running = false; clearObs(); G = null; runCalibration(); };
+$('toMenu1').onclick = toMenu; $('toMenu2').onclick = toMenu;
+$('pauseBtn').onclick = () => { if (running) { paused = true; show('scrPause'); } };
+$('resume').onclick = () => { paused = false; show(null); last = performance.now(); if (ac && ac.state === 'suspended') ac.resume(); };
+document.addEventListener('visibilitychange', () => { if (document.hidden && running && !paused) { paused = true; show('scrPause'); } });
+// buttons mode
+function bindHold(id, val) { const b = $(id); const on = e => { e.preventDefault(); ctrlState = val; }; const off = e => { e.preventDefault(); if (ctrlState === val) ctrlState = 'none'; };
+  b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('pointerleave', off); }
+bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
+window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
+window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
+try { const b = +localStorage.getItem('moo_base'); if (b > 50) voice.base = b; } catch(e){}
 })();
 </script>
 </body>
