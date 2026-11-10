@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>Му-раннер</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="lib/three.min.js"></script>
@@ -73,12 +75,13 @@
   <div id="scrStart" class="screen">
     <div class="card">
       <h1>🐮 Му-раннер</h1>
-      <p>Мычи <b style="color:#e2504a">высоко</b> — корова прыгает и парит над водой.<br>Мычи <b style="color:#3b6fd8">низко</b> — пригибается под жердями.</p>
+      <p>Молчи — корова бежит.<br>Мычи <b style="color:#3b6fd8">обычным голосом</b> — пригибается под жердями.<br>Мычи <b style="color:#e2504a">высоко</b> — прыгает и парит над водой.</p>
       <p>Чем длиннее ручей или навес — тем дольше тяни «мууу».</p>
       <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
       <button class="btn" id="goVoice">🎤 Играть голосом</button>
       <button class="btn sec" id="goButtons">Играть кнопками</button>
       <p id="recordLine" class="small"></p>
+      <p class="small" id="verLine"></p>
       <div class="err" id="startErr"></div>
     </div>
   </div>
@@ -96,13 +99,12 @@
   <div id="scrReady" class="screen hidden">
     <div class="card">
       <h2>Готово!</h2>
-      <p>Твоё обычное «му»: <b id="baseLbl"></b></p>
-      <p>Прыжок — выше на <b id="thrLbl1">3</b> (<span id="hzH"></span>).<br>Присед — ниже на <b id="thrLbl2">3</b> (<span id="hzL"></span>).</p>
-      <p class="small" id="rangeLbl"></p>
-      <div class="opt"><label for="optThr">Чувствительность</label><input type="range" id="optThr" min="0.5" max="1.5" step="0.1" value="1"></div>
-      <p class="small">Влево — легче срабатывает, вправо — нужно мычать сильнее.</p>
-      <p class="small">Попробуй сейчас: столбик справа от экрана показывает твой голос.</p>
-      <div class="legend"><span style="background:#fde2e1">↑ высоко</span><span style="background:#ece9e2">обычно</span><span style="background:#e0e8fb">↓ низко</span></div>
+      <p>Твоё обычное «му»: <b id="baseLbl"></b> — это <b style="color:#3b6fd8">присед</b>.</p>
+      <p><b style="color:#e2504a">Прыжок</b> — выше на <b id="thrLbl1">3</b> (<span id="hzH"></span>).</p>
+      <div class="opt"><label for="optThr">Порог «высоко»</label><input type="range" id="optThr" min="1" max="6" step="0.5" value="3"></div>
+      <p class="small">Влево — прыжок срабатывает легче, вправо — нужно мычать выше.</p>
+      <p class="small">Попробуй сейчас: столбик справа показывает твой голос.</p>
+      <div class="legend"><span style="background:#fde2e1">↑ прыжок</span><span style="background:#e0e8fb">↓ присед</span><span style="background:#ece9e2">тишина — бег</span></div>
       <button class="btn" id="goPlay">Поехали!</button>
       <button class="btn sec" id="goRecal">Перекалибровать</button>
     </div>
@@ -131,6 +133,17 @@
 // ================= CONFIG =================
 const REPORT_URL = '__REPORT_URL__';
 
+const VERSION = '3';
+(function checkVersion() {
+  try {
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
+      if (!j || !j.v || j.v === VERSION) return;
+      const q = new URLSearchParams(location.search);
+      if (q.get('v') === j.v) return; // already tried, avoid reload loop
+      q.set('v', j.v); location.replace(location.pathname + '?' + q.toString() + location.hash);
+    }).catch(() => {});
+  } catch (e) {}
+})();
 // ================= TELEGRAM =================
 const tg = window.Telegram && window.Telegram.WebApp;
 const inTG = !!(tg && tg.platform && tg.platform !== 'unknown');
@@ -161,6 +174,7 @@ function saveRecord() {
 try { tg && tg.CloudStorage && tg.CloudStorage.getItem('moo_record', (err, v) => { if (!err && v && +v > record) { record = +v; showRecord(); } }); } catch(e){}
 function showRecord() { document.getElementById('recordLine').textContent = record ? 'Твой рекорд: ' + record + ' м' : ''; }
 showRecord();
+document.getElementById('verLine').textContent = 'версия ' + VERSION;
 
 // ================= UI HELPERS =================
 const $ = id => document.getElementById(id);
@@ -201,22 +215,20 @@ function analyse() {
   if (rms > voice.gate) { const r = yin(ds, ac.sampleRate / 2); if (r && r.clarity > 0.72 && r.f > 60 && r.f < 900) f = r.f; }
   return { rms, f };
 }
-const voice = { gate: 0.008, base: 150, thr: 3, thrH: 3, thrL: 3, kH: 3, kL: 3, mult: 1, state: 'none', cand: 'none', candN: 0, offN: 0, semis: null, rms: 0, voiced: false };
+const voice = { gate: 0.008, base: 150, thrH: 3, state: 'none', cand: 'none', candN: 0, offN: 0, semis: null, rms: 0, voiced: false };
 function voiceTick() {
   const r = analyse(); voice.rms = r.rms;
   let rawState = 'off';
   if (r.f) {
     voice.lastF = r.f;
     const s = 12 * Math.log2(r.f / voice.base); voice.semis = s;
-    const tH = voice.thrH, tL = voice.thrL, hH = Math.min(0.7, tH * 0.45), hL = Math.min(0.7, tL * 0.45);
-    if (voice.state === 'high' && s > tH - hH) rawState = 'high';
-    else if (voice.state === 'low' && s < -tL + hL) rawState = 'low';
-    else rawState = s >= tH ? 'high' : s <= -tL ? 'low' : 'mid';
+    const tH = voice.thrH, hH = Math.min(0.7, tH * 0.4);
+    rawState = (voice.state === 'high' ? s > tH - hH : s >= tH) ? 'high' : 'low';
   } else if (r.rms < voice.gate) voice.semis = null;
   voice.voiced = rawState !== 'off';
   if (rawState === 'off') { voice.offN++; if (voice.offN >= 4) voice.state = 'none'; return; }
   voice.offN = 0;
-  const target = rawState === 'mid' ? 'none' : rawState;
+  const target = rawState;
   if (target === voice.state) { voice.candN = 0; return; }
   if (voice.cand === target) voice.candN++; else { voice.cand = target; voice.candN = 1; }
   if (voice.candN >= 2) { voice.state = target; voice.candN = 0; }
@@ -246,31 +258,25 @@ function listenPhase(dur, needQuiet) {
 }
 async function calibrate() {
   show('scrCal'); $('calErr').textContent = ''; $('calRetry').classList.add('hidden');
-  $('calTitle').textContent = 'Калибровка 1/4'; $('calText').textContent = 'Помолчи секунду — слушаю тишину вокруг…'; $('calVal').textContent = '🤫';
-  const noise = [];
-  await sampleFor(1200, p => { an.getFloatTimeDomainData(raw); let s = 0; for (let i = 0; i < raw.length; i++) s += raw[i] * raw[i]; noise.push(Math.sqrt(s / raw.length)); $('calRing').style.setProperty('--p', Math.min(100, p * 100) + '%'); });
-  voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5));
-  const fail = msg => { $('calErr').textContent = msg; $('calRetry').classList.remove('hidden'); return false; };
-  $('calTitle').textContent = 'Калибровка 2/4'; $('calText').innerHTML = 'Скажи обычное, спокойное<br><b>«Мууу»</b> (1 секунда)';
-  const fN = await listenPhase(1150);
-  if (fN.length < 15) return fail('Не расслышала 🙉 Попробуй погромче и подольше.');
-  const base = median(fN);
-  $('calVal').textContent = '👍'; await wait(600);
-  $('calTitle').textContent = 'Калибровка 3/4'; $('calText').innerHTML = 'Теперь <b style="color:#3b6fd8">как можно НИЖЕ</b><br>«Мууу» басом ⬇️ (1 сек)';
-  const fL = await listenPhase(1150, true);
-  $('calVal').textContent = '👍'; await wait(600);
-  $('calTitle').textContent = 'Калибровка 4/4'; $('calText').innerHTML = 'А теперь <b style="color:#e2504a">как можно ВЫШЕ</b><br>«Мууу» тонко ⬆️ (1 сек)';
-  const fH = await listenPhase(1150, true);
-  if (fL.length < 10 || fH.length < 10) return fail('Не всё расслышала 🙉 Давай ещё раз.');
-  const sem = f => 12 * Math.log2(f / base);
-  const lowS = -pct(fL.map(sem), 0.3), highS = pct(fH.map(sem), 0.7);
-  voice.base = base; voice.lowRange = lowS; voice.highRange = highS;
-  voice.kL = Math.max(0.4, lowS / 2); voice.kH = Math.max(1.0, highS / 2);
-  applyMult();
-  try { localStorage.setItem('moo_cal', JSON.stringify({ base, gate: voice.gate, kL: voice.kL, kH: voice.kH, lowS, highS })); } catch(e){}
+  $('calTitle').textContent = 'Калибровка'; $('calText').innerHTML = 'Скажи обычное, спокойное<br><b>«Мууу»</b> (1 секунда)';
+  voice.gate = 0.008;
+  const noise = []; const fs = []; let started = false, t0 = 0; const tStart = performance.now();
+  await new Promise(res => {
+    (function step() {
+      const now = performance.now(); const r = analyse();
+      if (!started && !r.f) { noise.push(r.rms); if (noise.length > 20) voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5)); }
+      if (r.f) { if (!started) { started = true; t0 = now; } if (now - t0 > 150) fs.push(r.f); $('calVal').textContent = Math.round(r.f) + ' Гц'; }
+      else if (!started) $('calVal').textContent = '🎤';
+      $('calRing').style.setProperty('--p', (started ? Math.min(1, (now - t0) / 1150) : 0) * 100 + '%');
+      if ((started && now - t0 > 1150) || now - tStart > 10000) return res();
+      requestAnimationFrame(step);
+    })();
+  });
+  if (fs.length < 15) { $('calErr').textContent = 'Не расслышала 🙉 Попробуй погромче.'; $('calRetry').classList.remove('hidden'); return false; }
+  voice.base = median(fs);
+  try { localStorage.setItem('moo_cal3', JSON.stringify({ base: voice.base, gate: voice.gate, thrH: voice.thrH })); } catch(e){}
   return true;
 }
-function applyMult() { voice.thrL = Math.max(0.3, voice.kL * voice.mult); voice.thrH = Math.max(0.6, voice.kH * voice.mult); }
 $('calRetry').onclick = () => runCalibration();
 async function runCalibration() { const ok = await calibrate(); if (ok) showReady(); }
 function noteName(f) { const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']; const m = Math.round(69 + 12 * Math.log2(f / 440)); return N[(m % 12 + 12) % 12] + (Math.floor(m / 12) - 1); }
@@ -278,24 +284,22 @@ let readyLoop = false;
 function showReady() {
   show('scrReady'); $('hud').classList.remove('hidden');
   $('baseLbl').textContent = Math.round(voice.base) + ' Гц (' + noteName(voice.base) + ')';
-  $('optThr').value = voice.mult; renderThr();
-  $('rangeLbl').textContent = voice.lowRange !== undefined ? 'Твой диапазон: на ' + semi(voice.lowRange) + ' ниже и на ' + semi(voice.highRange) + ' выше обычного.' : '';
+  $('optThr').value = voice.thrH; renderThr();
   readyLoop = true;
   (function step() { if (!readyLoop) return; voiceTick(); updateMeter(); requestAnimationFrame(step); })();
 }
 function fmtT(x) { return (Math.round(x * 10) / 10).toString().replace('.', ','); }
 function semi(x) { const r = Math.round(x * 10) / 10; if (r % 1) return fmtT(r) + ' полутона'; const n = Math.abs(r) % 100, n1 = n % 10; return fmtT(r) + (n > 10 && n < 20 ? ' полутонов' : n1 === 1 ? ' полутон' : n1 >= 2 && n1 <= 4 ? ' полутона' : ' полутонов'); }
-function renderThr() { $('thrLbl1').textContent = semi(voice.thrH); $('thrLbl2').textContent = semi(voice.thrL);
-  $('hzH').textContent = 'от ' + Math.round(voice.base * Math.pow(2, voice.thrH / 12)) + ' Гц'; $('hzL').textContent = 'до ' + Math.round(voice.base * Math.pow(2, -voice.thrL / 12)) + ' Гц'; layoutMeter(); }
-$('optThr').oninput = e => { voice.mult = +e.target.value; applyMult(); renderThr(); };
+function renderThr() { $('thrLbl1').textContent = semi(voice.thrH); $('hzH').textContent = 'от ' + Math.round(voice.base * Math.pow(2, voice.thrH / 12)) + ' Гц'; layoutMeter(); }
+$('optThr').oninput = e => { voice.thrH = +e.target.value; renderThr(); try { localStorage.setItem('moo_cal3', JSON.stringify({ base: voice.base, gate: voice.gate, thrH: voice.thrH })); } catch(e){} };
 $('goRecal').onclick = () => { readyLoop = false; runCalibration(); };
 const MR = 8;
-function layoutMeter() { $('zh').style.height = Math.max(0, (MR - voice.thrH) / (2 * MR) * 100) + '%'; $('zl').style.height = Math.max(0, (MR - voice.thrL) / (2 * MR) * 100) + '%'; }
+function layoutMeter() { const h = Math.max(0, (MR - voice.thrH) / (2 * MR) * 100); $('zh').style.height = h + '%'; $('zl').style.height = (100 - h) + '%'; }
 layoutMeter();
 function updateMeter() {
   const col = voice.state === 'high' ? '#e2504a' : voice.state === 'low' ? '#3b6fd8' : voice.voiced ? '#7bb661' : '#b9b6ae';
   $('micDot').style.background = col;
-  $('micLbl').textContent = mode === 'buttons' ? (ctrlState === 'high' ? 'высоко ↑' : ctrlState === 'low' ? 'низко ↓' : 'кнопки') : voice.state === 'high' ? 'высоко ↑' : voice.state === 'low' ? 'низко ↓' : voice.voiced ? 'обычно' : 'тишина';
+  $('micLbl').textContent = mode === 'buttons' ? (ctrlState === 'high' ? 'высоко ↑' : ctrlState === 'low' ? 'присед ↓' : 'кнопки') : voice.state === 'high' ? 'высоко ↑' : voice.state === 'low' ? 'присед ↓' : 'тишина';
   const mk = $('mk');
   if (mode === 'voice' && voice.semis !== null && voice.voiced) { const s = Math.max(-MR, Math.min(MR, voice.semis)); mk.style.display = 'block'; mk.style.top = ((MR - s) / (2 * MR) * 100) + '%'; mk.style.marginTop = '-3px'; }
   else mk.style.display = 'none';
@@ -501,7 +505,7 @@ function update(st, dt) {
   for (const o of st.obs) if (o.d + o.len < -9) { disposeObs(o.g); o.dead = 1; } st.obs = st.obs.filter(o => !o.dead);
   const ctl = control(); st.ctl = ctl;
   const grounded = st.y <= 0 && st.vy <= 0;
-  if (ctl === 'high' && grounded && st.c < 0.3) { st.vy = JV; haptic('light'); }
+  if (ctl === 'high' && grounded) { st.vy = JV; haptic('light'); }
   if (st.y > 0 || st.vy > 0) {
     if (ctl === 'high') { if (st.vy > 0) st.vy -= 8 * dt; else st.vy = Math.max(st.vy - 3 * dt, -0.12); }
     else if (ctl === 'low') st.vy -= 40 * dt; else st.vy -= 20 * dt;
@@ -555,7 +559,7 @@ function startGame() {
   running = true; paused = false; show(null);
   $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice'); $('hint').classList.toggle('hidden', mode !== 'voice'); 
   renderHearts(); last = performance.now();
-  report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: fmtT(voice.thrH) + '/' + fmtT(voice.thrL) });
+  report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: fmtT(voice.thrH) });
 }
 function gameOver() {
   G.over = true; running = false; haptic('heavy');
@@ -566,7 +570,7 @@ function gameOver() {
   $('overRec').textContent = isRec ? '🏆 Новый рекорд!' : 'Рекорд: ' + record + ' м';
   $('recal').classList.toggle('hidden', mode !== 'voice');
   show('scrOver'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden');
-  report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: fmtT(voice.thrH) + '/' + fmtT(voice.thrL), maxSpeed: +G.speed.toFixed(1) });
+  report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: fmtT(voice.thrH), maxSpeed: +G.speed.toFixed(1) });
 }
 function toMenu() { running = false; clearObs(); G = null; show('scrStart'); showRecord(); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden'); }
 
@@ -600,7 +604,7 @@ function bindHold(id, val) { const b = $(id); const on = e => { e.preventDefault
 bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
 window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
 window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
-try { const c = JSON.parse(localStorage.getItem('moo_cal') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.kL = c.kL; voice.kH = c.kH; voice.lowRange = c.lowS; voice.highRange = c.highS; applyMult(); } } catch(e){}
+try { const c = JSON.parse(localStorage.getItem('moo_cal3') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.thrH = c.thrH || 3; } } catch(e){}
 if (DEBUG) window.__moo = { get G() { return G; }, startGame: () => { mode = 'buttons'; startGame(); }, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
 })();
 </script>
