@@ -23,7 +23,7 @@ export default {
     try { p = JSON.parse(await request.text()); } catch { return new Response('bad json', { status: 400, headers: CORS }); }
 
     const v = await verifyInitData(p.initData || '', env.BOT_TOKEN);
-    const who = v.ok && v.user ? formatUser(v.user) : '❔ неизвестный (открыто не из Telegram или подпись не прошла)';
+    const who = v.ok && v.user ? formatUser(v.user) : '❔ неизвестный (не из Telegram)';
     const d = p.data || {};
     const platform = p.platform || '?';
 
@@ -38,14 +38,19 @@ export default {
     }
 
     let text = null, silent = true;
+    const head = who + ' · ' + esc(platformName(platform));
     if (p.event === 'open') {
-      text = '👋 ' + who + '\nзашёл в игру · ' + platform;
+      text = '👋 <b>Зашёл в игру</b>\n' + head;
     } else if (p.event === 'level') {
-      text = '🏁 ' + who + '\nпрошёл уровень ' + num(d.level) + (d.stars ? ' ' + '⭐'.repeat(Math.max(1, Math.min(3, +d.stars))) : '') +
-        '\n' + (d.mode === 'voice' ? '🎤 голосом' : '👆 кнопками') + (d.camera ? ' · 📷 камера вкл.' : ' · камера выкл.') +
-        ' · ' + fmtTime(d.seconds) + ' · ❤️ ' + num(d.livesLeft) + '/' + num(d.livesTotal) + ' · ' + platform;
+      const st = Math.max(0, Math.min(3, +d.stars || 0));
+      text = '🏁 <b>Уровень ' + num(d.level) + ' пройден</b> ' + '⭐'.repeat(st) + '☆'.repeat(3 - st) + '\n' + head +
+        '\n' + (d.mode === 'voice' ? '🎤 голосом' : '👆 кнопками') +
+        '\n' + (d.camera ? '📷 камера вкл.' : '📷 камера выкл.') +
+        '\n⏱ ' + fmtTime(d.seconds) +
+        '\n❤️ ' + num(d.livesLeft) + ' из ' + num(d.livesTotal);
     } else if (p.event === 'error') {
-      text = '⚠️ ' + who + '\nошибка на этапе «' + (d.stage || '?') + '»: ' + (d.name || '') + ' ' + (d.message || '') + ' · ' + platform;
+      const stage = { mic: 'микрофон', camera: 'камера' }[d.stage] || (d.stage || '?');
+      text = '⚠️ <b>Ошибка: ' + esc(stage) + '</b>\n' + head + '\n' + esc(((d.name || '') + (d.message ? ': ' + d.message : '')) || '—');
       silent = false;
     }
     if (text) await send(env.BOT_TOKEN, env.OWNER_CHAT_ID, text, silent);
@@ -57,7 +62,7 @@ async function send(token, chatId, text, silent) {
   await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000), disable_notification: !!silent }),
+    body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000), parse_mode: 'HTML', disable_notification: !!silent }),
   });
 }
 
@@ -65,8 +70,10 @@ function num(x) { return typeof x === 'number' ? String(x) : String(x || 0); }
 function fmtTime(s) { s = Math.max(0, Math.round(+s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function formatUser(u) {
   const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || 'без имени';
-  return name + (u.username ? ' (@' + u.username + ')' : '') + ' · id ' + u.id;
+  return esc(name) + (u.username ? ' (@' + esc(u.username) + ')' : '') + ' · id ' + u.id;
 }
+function esc(x) { return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function platformName(p) { return { tdesktop: 'ПК', weba: 'веб', webk: 'веб', web: 'веб', macos: 'macOS', ios: 'iOS', android: 'Android', android_x: 'Android' }[p] || p; }
 
 // Проверка подписи Telegram initData (https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app)
 export async function verifyInitData(initData, botToken) {
