@@ -45,6 +45,7 @@
   .btn { display:block; width:100%; border:0; border-radius:14px; padding:14px; font-size:17px; font-weight:600; margin-top:10px; background:#3b6fd8; color:#fff; }
   .btn.sec { background:#ece9e2; color:#2d2a32; }
   .btn.red { background:#e2504a; }
+  .btn:disabled { opacity:.45; }
   .opt { display:flex; align-items:center; justify-content:space-between; margin-top:12px; font-size:15px; text-align:left; }
   .opt input[type=checkbox] { width:22px; height:22px; }
   .opt input[type=range] { width:140px; }
@@ -86,6 +87,7 @@
       <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
       <button class="btn" id="goVoice">🎤 Играть голосом</button>
       <button class="btn sec" id="goButtons">Играть кнопками</button>
+      <p class="small" id="btnInfo"></p>
             <p class="small" id="verLine"></p>
       <div class="err" id="startErr"></div>
     </div>
@@ -148,7 +150,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '5';
+const VERSION = '6';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -190,6 +192,12 @@ function levelParams(N) {
   const lives = Math.max(3, Math.round(15 - 12 * (N - 1) / 19));
   return { N, speed, length, gap, maxHold, types, combo, lives };
 }
+const BTN_PER_DAY = 3;
+function btnQuota() { const d = new Date(); const today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); let q = null; try { q = JSON.parse(localStorage.getItem('moo_btn') || 'null'); } catch(e){} if (!q || q.d !== today) q = { d: today, n: 0 }; return q; }
+function btnLeft() { return Math.max(0, BTN_PER_DAY - btnQuota().n); }
+function useBtn() { const q = btnQuota(); q.n++; try { localStorage.setItem('moo_btn', JSON.stringify(q)); } catch(e){} }
+function updateBtnInfo() { const left = btnLeft(), b = document.getElementById('goButtons'); b.disabled = left <= 0;
+  document.getElementById('btnInfo').textContent = left > 0 ? 'Кнопками — сегодня осталось: ' + left : 'Кнопками на сегодня всё — играй голосом 🎤'; }
 let maxLevel = 1, selLevel = 1;
 try { maxLevel = Math.max(1, +(localStorage.getItem('moo_level') || 1)); } catch(e){}
 selLevel = maxLevel;
@@ -204,6 +212,7 @@ function showLevelSel() {
   document.getElementById('lvInfo').textContent = P.length + ' м · ' + String(Math.round(P.speed * 10) / 10).replace('.', ',') + ' м/с · ❤️ ' + P.lives + (maxLevel > 1 ? ' · открыто уровней: ' + maxLevel : '');
   document.getElementById('lvPrev').disabled = selLevel <= 1;
   document.getElementById('lvNext').disabled = selLevel >= maxLevel;
+  updateBtnInfo();
 }
 document.getElementById('lvPrev').onclick = () => { if (selLevel > 1) { selLevel--; showLevelSel(); } };
 document.getElementById('lvNext').onclick = () => { if (selLevel < maxLevel) { selLevel++; showLevelSel(); } };
@@ -625,7 +634,11 @@ function levelComplete() {
   if (N >= maxLevel) { maxLevel = N + 1; saveLevel(); }
   $('winLvl').textContent = 'Уровень ' + N;
   $('winInfo').textContent = 'Время ' + fmtSec(G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
-  $('nextLvl').textContent = 'Дальше: уровень ' + (N + 1);
+  if (mode === 'buttons') useBtn();
+  const toVoice = mode === 'buttons' && btnLeft() <= 0;
+  $('nextLvl').textContent = toVoice ? 'Дальше голосом 🎤: уровень ' + (N + 1) : 'Дальше: уровень ' + (N + 1);
+  $('nextLvl').dataset.voice = toVoice ? '1' : '';
+  $('againWin').classList.toggle('hidden', toVoice);
   show('scrWin'); endUI();
   report('level', { level: N, mode, camera: !!camStream, seconds: Math.round(G.t), livesLeft: G.lives, livesTotal: G.P.lives });
 }
@@ -647,11 +660,11 @@ async function begin(m) {
   if (m === 'voice') { if (voice.calibrated) showReady(); else runCalibration(); } else startGame();
 }
 $('goVoice').onclick = () => begin('voice');
-$('goButtons').onclick = () => begin('buttons');
+$('goButtons').onclick = () => { if (btnLeft() > 0) begin('buttons'); };
 $('goPlay').onclick = () => startGame();
 $('again').onclick = () => startGame(G ? G.level : selLevel);
 $('againWin').onclick = () => startGame(G ? G.level : selLevel);
-$('nextLvl').onclick = () => startGame((G ? G.level : selLevel) + 1);
+$('nextLvl').onclick = () => { const n = (G ? G.level : selLevel) + 1; if ($('nextLvl').dataset.voice) { running = false; clearObs(); G = null; selLevel = n; begin('voice'); } else startGame(n); };
 $('toMenu3').onclick = toMenu;
 $('recal').onclick = () => { running = false; clearObs(); G = null; runCalibration(); };
 $('toMenu1').onclick = toMenu; $('toMenu2').onclick = toMenu;
