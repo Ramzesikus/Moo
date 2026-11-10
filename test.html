@@ -44,8 +44,6 @@
   <div class="card">
     <div><span class="big" id="hz">—</span><span class="note" id="nt"></span></div>
     <div class="lvl"><div id="lvl"></div></div>
-    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;"><span id="mooTag" style="font-size:20px;font-weight:700;padding:6px 12px;border-radius:10px;background:#ece9e2;">—</span><span class="st" id="mooR">доля низких частот: —</span></div>
-    <div class="st">Проверка «му»: помычи низко и высоко, потом скажи «ааа», «иии», «эээ», посвисти — и скопируй отчёт.</div>
     <canvas id="graph" width="1000" height="280"></canvas>
     <div class="st">График: высота голоса за последние 6 секунд (полутона, нота по краю).</div>
     <video id="cam" playsinline muted autoplay></video>
@@ -177,15 +175,9 @@
       const n = noteOf(r.f);
       $('hz').textContent = Math.round(r.f) + ' Гц';
       $('nt').textContent = n.name + (n.cents >= 0 ? ' +' : ' ') + n.cents + '¢';
-      const R = mooRatio(r.f);
-      const isMoo = R >= 0.75;
-      $('mooTag').textContent = isMoo ? 'похоже на «му» ✓' : 'не «му»';
-      $('mooTag').style.background = isMoo ? '#d6f0dc' : '#f6dcda';
-      $('mooR').textContent = 'доля низких частот: ' + R.toFixed(2);
-      rStats.push(R);
       hist.push({ t: now, m: n.midi });
       voicedFrames++;
-      if (now - lastLog > 700) { log('Голос: ' + Math.round(r.f) + ' Гц (' + n.name + '), громкость ' + rms.toFixed(3) + ', низкие ' + R.toFixed(2) + (isMoo ? ' МУ' : ' —')); lastLog = now; }
+      if (now - lastLog > 700) { log('Голос: ' + Math.round(r.f) + ' Гц (' + n.name + '), громкость ' + rms.toFixed(3)); lastLog = now; }
     }
     hist = hist.filter(p => now - p.t < 6000);
     draw();

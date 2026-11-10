@@ -97,8 +97,10 @@
     <div class="card">
       <h2>Готово!</h2>
       <p>Твоё обычное «му»: <b id="baseLbl"></b></p>
-      <p>Чтобы прыгнуть — выше на <b id="thrLbl1">3</b> полутона.<br>Чтобы пригнуться — ниже на <b id="thrLbl2">3</b>.</p>
-      <div class="opt"><label for="optThr">Чувствительность (полутоны)</label><input type="range" id="optThr" min="2" max="6" step="0.5" value="3"></div>
+      <p>Прыжок — выше на <b id="thrLbl1">3</b> (<span id="hzH"></span>).<br>Присед — ниже на <b id="thrLbl2">3</b> (<span id="hzL"></span>).</p>
+      <p class="small" id="rangeLbl"></p>
+      <div class="opt"><label for="optThr">Чувствительность</label><input type="range" id="optThr" min="0.5" max="1.5" step="0.1" value="1"></div>
+      <p class="small">Влево — легче срабатывает, вправо — нужно мычать сильнее.</p>
       <p class="small">Попробуй сейчас: столбик справа от экрана показывает твой голос.</p>
       <div class="legend"><span style="background:#fde2e1">↑ высоко</span><span style="background:#ece9e2">обычно</span><span style="background:#e0e8fb">↓ низко</span></div>
       <button class="btn" id="goPlay">Поехали!</button>
@@ -199,17 +201,17 @@ function analyse() {
   if (rms > voice.gate) { const r = yin(ds, ac.sampleRate / 2); if (r && r.clarity > 0.72 && r.f > 60 && r.f < 900) f = r.f; }
   return { rms, f };
 }
-const voice = { gate: 0.008, base: 150, thr: 3, state: 'none', cand: 'none', candN: 0, offN: 0, semis: null, rms: 0, voiced: false };
+const voice = { gate: 0.008, base: 150, thr: 3, thrH: 3, thrL: 3, kH: 3, kL: 3, mult: 1, state: 'none', cand: 'none', candN: 0, offN: 0, semis: null, rms: 0, voiced: false };
 function voiceTick() {
   const r = analyse(); voice.rms = r.rms;
   let rawState = 'off';
   if (r.f) {
     voice.lastF = r.f;
     const s = 12 * Math.log2(r.f / voice.base); voice.semis = s;
-    const thr = voice.thr, hy = 0.7;
-    if (voice.state === 'high' && s > thr - hy) rawState = 'high';
-    else if (voice.state === 'low' && s < -thr + hy) rawState = 'low';
-    else rawState = s >= thr ? 'high' : s <= -thr ? 'low' : 'mid';
+    const tH = voice.thrH, tL = voice.thrL, hH = Math.min(0.7, tH * 0.45), hL = Math.min(0.7, tL * 0.45);
+    if (voice.state === 'high' && s > tH - hH) rawState = 'high';
+    else if (voice.state === 'low' && s < -tL + hL) rawState = 'low';
+    else rawState = s >= tH ? 'high' : s <= -tL ? 'low' : 'mid';
   } else if (r.rms < voice.gate) voice.semis = null;
   voice.voiced = rawState !== 'off';
   if (rawState === 'off') { voice.offN++; if (voice.offN >= 4) voice.state = 'none'; return; }
@@ -225,33 +227,49 @@ function median(a) { const b = a.slice().sort((x, y) => x - y); return b.length 
 function sampleFor(ms, onFrame) {
   return new Promise(res => { const t0 = performance.now(); (function step() { const now = performance.now(); onFrame((now - t0) / ms); if (now - t0 >= ms) return res(); requestAnimationFrame(step); })(); });
 }
-async function calibrate() {
-  show('scrCal'); $('calErr').textContent = ''; $('calRetry').classList.add('hidden');
-  $('calTitle').textContent = 'Калибровка 1/2'; $('calText').textContent = 'Помолчи секунду — слушаю тишину вокруг…'; $('calVal').textContent = '🤫';
-  const noise = [];
-  await sampleFor(1200, p => { an.getFloatTimeDomainData(raw); let s = 0; for (let i = 0; i < raw.length; i++) s += raw[i] * raw[i]; noise.push(Math.sqrt(s / raw.length)); $('calRing').style.setProperty('--p', Math.min(100, p * 100) + '%'); });
-  voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5));
-  $('calTitle').textContent = 'Калибровка 2/2'; $('calText').innerHTML = 'Теперь скажи обычное, спокойное<br><b>«Мууууу»</b> (2–3 секунды)';
-  const fs = []; let started = false, t0 = 0;
-  await new Promise(res => {
-    const tStart = performance.now();
+function pct(a, q) { const b = a.slice().sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.max(0, Math.floor(q * (b.length - 1))))] : 0; }
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+// listen until voice starts, then record `dur` ms of pitches
+function listenPhase(dur) {
+  return new Promise(res => {
+    const fs = []; let started = false, t0 = 0; const tStart = performance.now();
     (function step() {
       const now = performance.now(); const r = analyse();
       if (r.f) { fs.push(r.f); if (!started) { started = true; t0 = now; } $('calVal').textContent = Math.round(r.f) + ' Гц'; }
       else if (!started) $('calVal').textContent = '🎤';
-      const p = started ? Math.min(1, (now - t0) / 2500) : 0; $('calRing').style.setProperty('--p', p * 100 + '%');
-      if ((started && now - t0 > 2500) || now - tStart > 9000) return res();
+      const p = started ? Math.min(1, (now - t0) / dur) : 0; $('calRing').style.setProperty('--p', p * 100 + '%');
+      if ((started && now - t0 > dur) || now - tStart > 10000) return res(fs);
       requestAnimationFrame(step);
     })();
   });
-  if (fs.length < 25) {
-    $('calErr').textContent = 'Не расслышала 🙉 Попробуй погромче и подольше.'; $('calRetry').classList.remove('hidden');
-    return false;
-  }
-  voice.base = median(fs);
-  try { localStorage.setItem('moo_base', String(voice.base)); localStorage.setItem('moo_gate', String(voice.gate)); } catch(e){}
+}
+async function calibrate() {
+  show('scrCal'); $('calErr').textContent = ''; $('calRetry').classList.add('hidden');
+  $('calTitle').textContent = 'Калибровка 1/4'; $('calText').textContent = 'Помолчи секунду — слушаю тишину вокруг…'; $('calVal').textContent = '🤫';
+  const noise = [];
+  await sampleFor(1200, p => { an.getFloatTimeDomainData(raw); let s = 0; for (let i = 0; i < raw.length; i++) s += raw[i] * raw[i]; noise.push(Math.sqrt(s / raw.length)); $('calRing').style.setProperty('--p', Math.min(100, p * 100) + '%'); });
+  voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5));
+  const fail = msg => { $('calErr').textContent = msg; $('calRetry').classList.remove('hidden'); return false; };
+  $('calTitle').textContent = 'Калибровка 2/4'; $('calText').innerHTML = 'Скажи обычное, спокойное<br><b>«Мууууу»</b> (2–3 секунды)';
+  const fN = await listenPhase(2500);
+  if (fN.length < 25) return fail('Не расслышала 🙉 Попробуй погромче и подольше.');
+  const base = median(fN);
+  $('calVal').textContent = '👍'; await wait(700);
+  $('calTitle').textContent = 'Калибровка 3/4'; $('calText').innerHTML = 'Теперь <b style="color:#3b6fd8">как можно НИЖЕ</b><br>«Мууууу» басом ⬇️';
+  const fL = await listenPhase(2500);
+  $('calVal').textContent = '👍'; await wait(700);
+  $('calTitle').textContent = 'Калибровка 4/4'; $('calText').innerHTML = 'А теперь <b style="color:#e2504a">как можно ВЫШЕ</b><br>«Мууууу» тонко ⬆️';
+  const fH = await listenPhase(2500);
+  if (fL.length < 15 || fH.length < 15) return fail('Не всё расслышала 🙉 Давай ещё раз.');
+  const sem = f => 12 * Math.log2(f / base);
+  const lowS = -pct(fL.map(sem), 0.3), highS = pct(fH.map(sem), 0.7);
+  voice.base = base; voice.lowRange = lowS; voice.highRange = highS;
+  voice.kL = Math.max(0.4, lowS / 2); voice.kH = Math.max(1.0, highS / 2);
+  applyMult();
+  try { localStorage.setItem('moo_cal', JSON.stringify({ base, gate: voice.gate, kL: voice.kL, kH: voice.kH, lowS, highS })); } catch(e){}
   return true;
 }
+function applyMult() { voice.thrL = Math.max(0.3, voice.kL * voice.mult); voice.thrH = Math.max(0.6, voice.kH * voice.mult); }
 $('calRetry').onclick = () => runCalibration();
 async function runCalibration() { const ok = await calibrate(); if (ok) showReady(); }
 function noteName(f) { const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']; const m = Math.round(69 + 12 * Math.log2(f / 440)); return N[(m % 12 + 12) % 12] + (Math.floor(m / 12) - 1); }
@@ -259,13 +277,19 @@ let readyLoop = false;
 function showReady() {
   show('scrReady'); $('hud').classList.remove('hidden');
   $('baseLbl').textContent = Math.round(voice.base) + ' Гц (' + noteName(voice.base) + ')';
+  $('optThr').value = voice.mult; renderThr();
+  $('rangeLbl').textContent = voice.lowRange !== undefined ? 'Твой диапазон: на ' + semi(voice.lowRange) + ' ниже и на ' + semi(voice.highRange) + ' выше обычного.' : '';
   readyLoop = true;
   (function step() { if (!readyLoop) return; voiceTick(); updateMeter(); requestAnimationFrame(step); })();
 }
-$('optThr').oninput = e => { voice.thr = +e.target.value; $('thrLbl1').textContent = $('thrLbl2').textContent = voice.thr; layoutMeter(); };
+function fmtT(x) { return (Math.round(x * 10) / 10).toString().replace('.', ','); }
+function semi(x) { const r = Math.round(x * 10) / 10; if (r % 1) return fmtT(r) + ' полутона'; const n = Math.abs(r) % 100, n1 = n % 10; return fmtT(r) + (n > 10 && n < 20 ? ' полутонов' : n1 === 1 ? ' полутон' : n1 >= 2 && n1 <= 4 ? ' полутона' : ' полутонов'); }
+function renderThr() { $('thrLbl1').textContent = semi(voice.thrH); $('thrLbl2').textContent = semi(voice.thrL);
+  $('hzH').textContent = 'от ' + Math.round(voice.base * Math.pow(2, voice.thrH / 12)) + ' Гц'; $('hzL').textContent = 'до ' + Math.round(voice.base * Math.pow(2, -voice.thrL / 12)) + ' Гц'; layoutMeter(); }
+$('optThr').oninput = e => { voice.mult = +e.target.value; applyMult(); renderThr(); };
 $('goRecal').onclick = () => { readyLoop = false; runCalibration(); };
-const MR = 10;
-function layoutMeter() { const h = Math.max(0, (MR - voice.thr) / (2 * MR) * 100); $('zh').style.height = h + '%'; $('zl').style.height = h + '%'; }
+const MR = 8;
+function layoutMeter() { $('zh').style.height = Math.max(0, (MR - voice.thrH) / (2 * MR) * 100) + '%'; $('zl').style.height = Math.max(0, (MR - voice.thrL) / (2 * MR) * 100) + '%'; }
 layoutMeter();
 function updateMeter() {
   const col = voice.state === 'high' ? '#e2504a' : voice.state === 'low' ? '#3b6fd8' : voice.voiced ? '#7bb661' : '#b9b6ae';
@@ -530,7 +554,7 @@ function startGame() {
   running = true; paused = false; show(null);
   $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice'); $('hint').classList.toggle('hidden', mode !== 'voice'); 
   renderHearts(); last = performance.now();
-  report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: voice.thr });
+  report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: fmtT(voice.thrH) + '/' + fmtT(voice.thrL) });
 }
 function gameOver() {
   G.over = true; running = false; haptic('heavy');
@@ -541,7 +565,7 @@ function gameOver() {
   $('overRec').textContent = isRec ? '🏆 Новый рекорд!' : 'Рекорд: ' + record + ' м';
   $('recal').classList.toggle('hidden', mode !== 'voice');
   show('scrOver'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden');
-  report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: voice.thr, maxSpeed: +G.speed.toFixed(1) });
+  report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: fmtT(voice.thrH) + '/' + fmtT(voice.thrL), maxSpeed: +G.speed.toFixed(1) });
 }
 function toMenu() { running = false; clearObs(); G = null; show('scrStart'); showRecord(); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden'); }
 
@@ -575,7 +599,7 @@ function bindHold(id, val) { const b = $(id); const on = e => { e.preventDefault
 bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
 window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
 window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
-try { const b = +localStorage.getItem('moo_base'); if (b > 50) voice.base = b; } catch(e){}
+try { const c = JSON.parse(localStorage.getItem('moo_cal') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.kL = c.kL; voice.kH = c.kH; voice.lowRange = c.lowS; voice.highRange = c.highS; applyMult(); } } catch(e){}
 if (DEBUG) window.__moo = { get G() { return G; }, startGame: () => { mode = 'buttons'; startGame(); }, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
 })();
 </script>
