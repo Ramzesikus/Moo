@@ -82,7 +82,7 @@
       <h1>🐮 Му-раннер</h1>
       <p>Молчи — корова бежит.<br>Мычи <b style="color:#3b6fd8">обычным голосом</b> — пригибается под жердями.<br>Мычи <b style="color:#e2504a">высоко</b> — прыгает и парит над водой.</p>
       <p>Чем длиннее ручей или навес — тем дольше тяни «мууу».</p>
-      <div class="lvlsel"><button id="lvPrev" aria-label="Предыдущий уровень">◀</button><div><div class="small">Уровень</div><div class="big" id="lvNum">1</div></div><button id="lvNext" aria-label="Следующий уровень">▶</button></div>
+      <div class="lvlsel"><button id="lvPrev" aria-label="Предыдущий уровень">◀</button><div><div class="small">Уровень</div><div class="big" id="lvNum">1</div><div id="lvStars" style="font-size:18px;letter-spacing:2px;min-height:22px;"></div></div><button id="lvNext" aria-label="Следующий уровень">▶</button></div>
       <p class="small" id="lvInfo"></p>
       <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
       <button class="btn" id="goVoice">🎤 Играть голосом</button>
@@ -136,6 +136,8 @@
     <div class="card">
       <h2>Уровень пройден! 🎉</h2>
       <div class="big" id="winLvl">Уровень 1</div>
+      <div id="winStars" style="font-size:40px;letter-spacing:4px;margin:4px 0;"></div>
+      <p class="small" id="winStarNote"></p>
       <p id="winInfo"></p>
       <button class="btn" id="nextLvl">Дальше</button>
       <button class="btn sec" id="againWin">Пройти ещё раз</button>
@@ -150,7 +152,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '6';
+const VERSION = '7';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -184,7 +186,7 @@ report('open', {});
 // ================= LEVELS =================
 function levelParams(N) {
   const speed = N <= 20 ? Math.min(9, 3.5 + 0.35 * (N - 1)) : Math.min(11, 9 + 0.05 * (N - 20));
-  const length = Math.min(600, 150 + 30 * (N - 1)) + (N > 60 ? 10 * (N - 60) : 0);
+  const length = Math.round(Math.min(60 + 20 * (N - 1), speed * 30));
   const gap = Math.max(0.9, 2.6 - 0.12 * (N - 1));
   const maxHold = Math.min(3.5, 0.8 + 0.2 * (N - 1));
   const types = N === 1 ? ['fence', 'bar'] : N === 2 ? ['fence', 'bar', 'ditch'] : ['fence', 'bar', 'ditch', 'roof'];
@@ -196,8 +198,14 @@ const BTN_PER_DAY = 3;
 function btnQuota() { const d = new Date(); const today = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); let q = null; try { q = JSON.parse(localStorage.getItem('moo_btn') || 'null'); } catch(e){} if (!q || q.d !== today) q = { d: today, n: 0 }; return q; }
 function btnLeft() { return Math.max(0, BTN_PER_DAY - btnQuota().n); }
 function useBtn() { const q = btnQuota(); q.n++; try { localStorage.setItem('moo_btn', JSON.stringify(q)); } catch(e){} }
-function updateBtnInfo() { const left = btnLeft(), b = document.getElementById('goButtons'); b.disabled = left <= 0;
-  document.getElementById('btnInfo').textContent = left > 0 ? 'Кнопками — сегодня осталось: ' + left : 'Кнопками на сегодня всё — играй голосом 🎤'; }
+function updateBtnInfo() { const left = btnLeft(), replay = selLevel < maxLevel, b = document.getElementById('goButtons'); b.disabled = left <= 0 && !replay;
+  document.getElementById('btnInfo').textContent = replay ? 'Пройденный уровень кнопками — бесплатно' : left > 0 ? 'Кнопками — сегодня осталось: ' + left : 'Кнопками на сегодня всё — играй голосом 🎤'; }
+let stars = {};
+try { stars = JSON.parse(localStorage.getItem('moo_stars') || '{}') || {}; } catch(e){ stars = {}; }
+function saveStars() { const v = JSON.stringify(stars); try { localStorage.setItem('moo_stars', v); } catch(e){} try { tg && tg.CloudStorage && tg.CloudStorage.setItem('moo_stars', v); } catch(e){} }
+try { tg && tg.CloudStorage && tg.CloudStorage.getItem('moo_stars', (err, v) => { if (err || !v) return; try { const c = JSON.parse(v); let ch = false; for (const k in c) if ((c[k] || 0) > (stars[k] || 0)) { stars[k] = c[k]; ch = true; } if (ch) { saveStars(); showLevelSel(); } } catch(e){} }); } catch(e){}
+function starStr(n) { return '⭐'.repeat(n) + '☆'.repeat(3 - n); }
+function totalStars() { let t = 0; for (const k in stars) t += stars[k] || 0; return t; }
 let maxLevel = 1, selLevel = 1;
 try { maxLevel = Math.max(1, +(localStorage.getItem('moo_level') || 1)); } catch(e){}
 selLevel = maxLevel;
@@ -209,7 +217,8 @@ try { tg && tg.CloudStorage && tg.CloudStorage.getItem('moo_level', (err, v) => 
 function showLevelSel() {
   const P = levelParams(selLevel);
   document.getElementById('lvNum').textContent = selLevel;
-  document.getElementById('lvInfo').textContent = P.length + ' м · ' + String(Math.round(P.speed * 10) / 10).replace('.', ',') + ' м/с · ❤️ ' + P.lives + (maxLevel > 1 ? ' · открыто уровней: ' + maxLevel : '');
+  document.getElementById('lvStars').textContent = stars[selLevel] ? starStr(stars[selLevel]) : (selLevel < maxLevel ? '☆☆☆' : '');
+  document.getElementById('lvInfo').textContent = P.length + ' м · ' + String(Math.round(P.speed * 10) / 10).replace('.', ',') + ' м/с · ❤️ ' + P.lives + (totalStars() ? ' · всего ⭐ ' + totalStars() : '');
   document.getElementById('lvPrev').disabled = selLevel <= 1;
   document.getElementById('lvNext').disabled = selLevel >= maxLevel;
   updateBtnInfo();
@@ -465,7 +474,7 @@ let mode = 'voice', ctrlState = 'none';
 let G = null; // game state
 function newState(N) {
   const P = levelParams(N || 1);
-  return { P, level: P.N, t: 0, speed: P.speed, dist: 0, lives: P.lives, finish: false, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: P.speed * 2.5, script: [], passed: 0, over: false, shake: 0, dust: [],
+  return { P, level: P.N, t: 0, speed: P.speed, dist: 0, lives: P.lives, finish: false, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: 0, nextAt: P.speed * 3, script: [], passed: 0, over: false, shake: 0, dust: [],
     y: 0, vy: 0, c: 0, cv: 0, air: 0, av: 0, tilt: 0, tv: 0, ph: 0, m: 0, mv: 0, ctl: 'none', glide: 0, bell: 0, bv: 0,
     tA: [0,0,0,0,0], tV: [0,0,0,0,0], tZ: [0,0,0,0,0], tZV: [0,0,0,0,0], look: 0, lookT: 4, hy: 0, hyv: 0, ears: [0, 0], earsV: [0, 0] };
 }
@@ -546,16 +555,15 @@ function update(st, dt) {
   if (st.kbT > 0) { st.kbT -= dt; const p = Math.min(1, 1 - st.kbT / KB_T); const sft = st.kbDist * (1 - (1 - p) * (1 - p)); move = -(sft - st.kbDone); st.kbDone = sft; if (st.kbT <= 0) { st.kbT = 0; for (const o of st.obs) o.hit = 0; } }
   else { st.recover = Math.min(1, st.recover + dt / 0.9); move = st.speed * st.recover * dt; }
   st.dist = Math.max(0, st.dist + move); grassT.offset.x = (st.dist / TL * 16) % 1;
-  st.nextSpawn -= move;
   const P = st.P;
-  if (st.nextSpawn <= 0 && st.dist + 30 < P.length - 6) {
+  if (st.nextAt - st.dist < 30 && st.nextAt < P.length - 6) {
     const type = P.types[Math.floor(Math.random() * P.types.length)];
     const hold = 0.5 + Math.random() * Math.max(0, P.maxHold - 0.5);
     let len = (type === 'ditch' || type === 'roof') ? st.speed * hold : 0;
-    len = Math.min(len, Math.max(0, P.length - 6 - (st.dist + 30)));
-    st.obs.push({ d: 30, len, type, g: makeObs(type, len) });
+    len = Math.min(len, Math.max(0, P.length - 6 - st.nextAt));
+    st.obs.push({ d: st.nextAt - st.dist, len, type, g: makeObs(type, len) });
     const combo = Math.random() < P.combo;
-    st.nextSpawn = len + st.speed * (combo ? Math.max(0.7, P.gap * 0.5) : P.gap * (0.9 + Math.random() * 0.4));
+    st.nextAt += len + st.speed * (combo ? Math.max(0.7, P.gap * 0.5) : P.gap * (0.9 + Math.random() * 0.4));
   }
   if (!st.finish && P.length - st.dist < 30) { st.finish = true; st.obs.push({ d: P.length - st.dist, len: 0, type: 'finish', g: makeFinish() }); }
   if (st.dist >= P.length) { levelComplete(); return; }
@@ -579,7 +587,7 @@ function update(st, dt) {
   st.lookT -= dt; if (st.lookT <= 0) { st.look = st.look ? 0 : 1; st.lookT = st.look ? 0.9 + Math.random() * 0.6 : 3 + Math.random() * 4; } sp(st, 'hy', 'hyv', st.look * 0.55, 30, 8, dt);
   for (const p of st.dust) { p.l -= dt; p.m.position.x += p.vx * dt; p.m.position.y += p.vy * dt; p.vy -= 2 * dt; const s = Math.max(0.01, p.l / 0.5); p.m.scale.setScalar(0.6 + (1 - s) * 0.8); if (p.l <= 0) scene.remove(p.m); } st.dust = st.dust.filter(p => p.l > 0);
   pose(st, dt);
-  for (const o of st.obs) { o.g.position.x = o.d; if (o.type !== 'ditch') { const e = Math.min(1, Math.max(0, (28 - o.d) / 3)); o.g.scale.set(1, Math.max(0.001, e), 1); } }
+  for (const o of st.obs) { o.g.position.x = o.d; if (o.type !== 'ditch') { const e = o.d < 25 ? 1 : Math.min(1, Math.max(0, (28 - o.d) / 3)); o.g.scale.set(1, Math.max(0.001, e), 1); } }
   collide(st);
 }
 const camBase = new T.Vector3(-9.0, 7.4, 6.6), lookBase = new T.Vector3(3.6, 1.6, -1.4); let camY = 0;
@@ -630,17 +638,21 @@ function gameOver() {
 }
 function levelComplete() {
   G.over = true; running = false; try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch(e){}
-  const N = G.level;
-  if (N >= maxLevel) { maxLevel = N + 1; saveLevel(); }
-  $('winLvl').textContent = 'Уровень ' + N;
-  $('winInfo').textContent = 'Время ' + fmtSec(G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
-  if (mode === 'buttons') useBtn();
+  const N = G.level, isNew = N >= maxLevel;
+  const lost = G.P.lives - G.lives;
+  let st_ = lost === 0 ? 3 : lost <= 2 ? 2 : 1; if (mode === 'buttons') st_ = Math.min(2, st_);
+  const prevStars = stars[N] || 0; if (st_ > prevStars) { stars[N] = st_; saveStars(); }
+  if (isNew) { maxLevel = N + 1; saveLevel(); selLevel = N + 1; }
+  if (mode === 'buttons' && isNew) useBtn();
   const toVoice = mode === 'buttons' && btnLeft() <= 0;
+  $('winLvl').textContent = 'Уровень ' + N;
+  $('winStars').textContent = starStr(st_);
+  $('winStarNote').textContent = (st_ > prevStars && prevStars ? 'Лучше, чем было! ' : '') + (mode === 'buttons' ? 'Кнопками — максимум две звезды, три — только голосом.' : st_ < 3 ? 'Пройди без потерь жизней — будет три звезды.' : '');
+  $('winInfo').textContent = 'Время ' + fmtSec(G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
   $('nextLvl').textContent = toVoice ? 'Дальше голосом 🎤: уровень ' + (N + 1) : 'Дальше: уровень ' + (N + 1);
   $('nextLvl').dataset.voice = toVoice ? '1' : '';
-  $('againWin').classList.toggle('hidden', toVoice);
   show('scrWin'); endUI();
-  report('level', { level: N, mode, camera: !!camStream, seconds: Math.round(G.t), livesLeft: G.lives, livesTotal: G.P.lives });
+  report('level', { level: N, stars: st_, mode, camera: !!camStream, seconds: Math.round(G.t), livesLeft: G.lives, livesTotal: G.P.lives });
 }
 function toMenu() { running = false; clearObs(); G = null; selLevel = Math.min(selLevel, maxLevel); showLevelSel(); show('scrStart'); $('hud').classList.add('hidden'); endUI(); }
 
@@ -660,7 +672,7 @@ async function begin(m) {
   if (m === 'voice') { if (voice.calibrated) showReady(); else runCalibration(); } else startGame();
 }
 $('goVoice').onclick = () => begin('voice');
-$('goButtons').onclick = () => { if (btnLeft() > 0) begin('buttons'); };
+$('goButtons').onclick = () => { if (btnLeft() > 0 || selLevel < maxLevel) begin('buttons'); };
 $('goPlay').onclick = () => startGame();
 $('again').onclick = () => startGame(G ? G.level : selLevel);
 $('againWin').onclick = () => startGame(G ? G.level : selLevel);

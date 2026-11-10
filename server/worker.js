@@ -41,7 +41,7 @@ export default {
     if (p.event === 'open') {
       text = '👋 ' + who + '\nзашёл в игру · ' + platform;
     } else if (p.event === 'level') {
-      text = '🏁 ' + who + '\nпрошёл уровень ' + num(d.level) +
+      text = '🏁 ' + who + '\nпрошёл уровень ' + num(d.level) + (d.stars ? ' ' + '⭐'.repeat(Math.max(1, Math.min(3, +d.stars))) : '') +
         '\n' + (d.mode === 'voice' ? '🎤 голосом' : '👆 кнопками') + (d.camera ? ' · 📷 камера вкл.' : ' · камера выкл.') +
         ' · ' + fmtTime(d.seconds) + ' · ❤️ ' + num(d.livesLeft) + '/' + num(d.livesTotal) + ' · ' + platform;
     } else if (p.event === 'error') {
