@@ -131,9 +131,9 @@
 (function(){
 'use strict';
 // ================= CONFIG =================
-const REPORT_URL = '__REPORT_URL__';
+const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '3';
+const VERSION = '4';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
