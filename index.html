@@ -55,6 +55,9 @@
   .opt input[type=range] { width:140px; }
   .big { font-size:46px; font-weight:800; margin:6px 0; }
   .ring { width:120px; height:120px; margin:12px auto; border-radius:60px; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:700; background:conic-gradient(#3b6fd8 var(--p,0%), #ece9e2 0); }
+  .lvbar { position:relative; height:10px; margin:4px auto 10px; width:200px; border-radius:5px; background:#ece9e2; overflow:hidden; }
+  .lvbar div { height:100%; width:0; background:#7bb661; border-radius:5px; transition:width .05s; }
+  .lvbar i { position:absolute; top:0; bottom:0; width:2px; background:#2d2a32; left:0; }
   .ring span { width:96px; height:96px; border-radius:48px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
   .err { color:#c2413c; font-size:14px; min-height:18px; }
   #toast { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); font-size:34px; font-weight:800; color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.35); opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
@@ -101,6 +104,7 @@
       <h2 id="calTitle">Калибровка</h2>
       <p id="calText">Помолчи секунду…</p>
       <div class="ring" id="calRing"><span id="calVal"></span></div>
+      <div class="lvbar"><div id="calLvl"></div><i id="calGate"></i></div>
       <div class="err" id="calErr"></div>
       <button class="btn sec hidden" id="calRetry">Попробовать ещё раз</button>
     </div>
@@ -149,7 +153,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '11';
+const VERSION = '12';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -236,7 +240,7 @@ function toast(t) { const el = $('toast'); el.textContent = t; el.style.opacity 
 // ================= AUDIO / PITCH =================
 let ac = null, micStream = null, an = null, raw = null, ds = null;
 async function initMic() {
-  if (micStream && micStream.active) { if (ac && ac.state === 'suspended') await ac.resume(); return; }
+  if (micStream && micStream.active && ac && ac.state !== 'closed') { if (ac.state !== 'running') await ac.resume(); return; }
   micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   const AC = window.AudioContext || window.webkitAudioContext;
   ac = new AC();
@@ -307,29 +311,54 @@ function listenPhase(dur, needQuiet) {
     })();
   });
 }
+function audioInfo() { let tr = null; try { tr = micStream && micStream.getAudioTracks()[0]; } catch(e){}
+  return 'ac=' + (ac ? ac.state : 'нет') + ', трек=' + (tr ? tr.readyState + (tr.muted ? ',muted' : '') + (tr.enabled ? '' : ',disabled') : 'нет'); }
+async function ensureAudio(force) {
+  let tr = null; try { tr = micStream && micStream.getAudioTracks()[0]; } catch(e){}
+  const dead = force || !micStream || !micStream.active || !tr || tr.readyState !== 'live' || !ac || ac.state === 'closed';
+  if (!dead) { if (ac.state !== 'running') { try { await ac.resume(); } catch(e){} } if (ac.state === 'running') return; }
+  try { micStream && micStream.getTracks().forEach(t => t.stop()); } catch(e){}
+  try { ac && ac.close(); } catch(e){}
+  micStream = null; await initMic();
+}
+const LVL_FULL = 0.12;
+function showLvl(rms) { $('calLvl').style.width = Math.min(100, Math.sqrt(rms / LVL_FULL) * 100) + '%'; $('calGate').style.left = Math.min(100, Math.sqrt(voice.gate / LVL_FULL) * 100) + '%'; }
+function calFail(msg, btn, kind) { $('calErr').textContent = msg; $('calRetry').textContent = btn; $('calRetry').dataset.kind = kind; $('calRetry').classList.remove('hidden'); }
 async function calibrate() {
-  show('scrCal'); $('calErr').textContent = ''; $('calRetry').classList.add('hidden');
-  $('calTitle').textContent = 'Калибровка'; $('calText').innerHTML = 'Скажи обычное, спокойное<br><b>«Мууу»</b> (1 секунда)';
+  show('scrCal'); $('calErr').textContent = ''; $('calRetry').classList.add('hidden'); $('hud').classList.add('hidden');
+  $('calTitle').textContent = 'Калибровка';
   voice.gate = 0.008;
-  const noise = []; const fs = []; let started = false, t0 = 0; const tStart = performance.now();
-  await new Promise(res => {
-    (function step() {
-      const now = performance.now(); const r = analyse();
-      if (!started && !r.f) { noise.push(r.rms); if (noise.length > 20) voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5)); }
-      if (r.f) { if (!started) { started = true; t0 = now; } if (now - t0 > 150) fs.push(r.f); $('calVal').textContent = Math.round(r.f) + ' Гц'; }
-      else if (!started) $('calVal').textContent = '🎤';
-      $('calRing').style.setProperty('--p', (started ? Math.min(1, (now - t0) / 1150) : 0) * 100 + '%');
-      if ((started && now - t0 > 1150) || now - tStart > 10000) return res();
-      requestAnimationFrame(step);
-    })();
-  });
-  if (fs.length < 15) { $('calErr').textContent = 'Не расслышала 🙉 Попробуй погромче.'; $('calRetry').classList.remove('hidden'); return false; }
+  const frame = () => new Promise(r => requestAnimationFrame(r));
+  // step 1: silence
+  $('calText').innerHTML = 'Шаг 1 из 2<br><b>Помолчи…</b>'; $('calVal').textContent = '🤫';
+  const noise = []; let t0 = performance.now(), peak = 0;
+  while (performance.now() - t0 < 1200) { const r = analyse(); noise.push(r.rms); peak = Math.max(peak, r.rms); showLvl(r.rms); $('calRing').style.setProperty('--p', Math.min(1, (performance.now() - t0) / 1200) * 100 + '%'); await frame(); }
+  const peak1 = peak;
+  voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5));
+  // step 2: moo
+  $('calText').innerHTML = 'Шаг 2 из 2<br>Скажи обычное <b>«Мууу»</b> (1 секунда)'; $('calVal').textContent = '🎤'; $('calRing').style.setProperty('--p', '0%');
+  const fs = []; let started = false, ts = 0; const tStart = performance.now(); peak = 0;
+  while (true) {
+    const now = performance.now(), r = analyse(); peak = Math.max(peak, r.rms); showLvl(r.rms);
+    if (r.f) { if (!started) { started = true; ts = now; } if (now - ts > 150) fs.push(r.f); $('calVal').textContent = Math.round(r.f) + ' Гц'; }
+    $('calRing').style.setProperty('--p', (started ? Math.min(1, (now - ts) / 1150) : 0) * 100 + '%');
+    if ((started && now - ts > 1150) || now - tStart > 10000 || (peak1 === 0 && peak === 0 && now - tStart > 3000)) break;
+    await frame();
+  }
+  showLvl(0);
+  if (peak === 0) { report('error', { stage: 'mic', name: 'тишина', message: 'микрофон даёт ноль · ' + audioInfo() }); calFail('Микрофон не отвечает 🙉', 'Включить снова', 'dead'); return false; }
+  if (fs.length < 15) { calFail(started ? 'Слишком коротко — тяни «мууу» подольше.' : 'Не расслышала 🙉 Попробуй погромче.', 'Попробовать ещё раз', 'retry'); return false; }
   voice.base = median(fs); voice.calibrated = true;
   try { localStorage.setItem('moo_cal3', JSON.stringify({ base: voice.base, gate: voice.gate, thrH: voice.thrH })); } catch(e){}
   return true;
 }
-$('calRetry').onclick = () => runCalibration();
-async function runCalibration() { const ok = await calibrate(); if (ok) showReady(); }
+$('calRetry').onclick = () => runCalibration($('calRetry').dataset.kind === 'dead');
+async function runCalibration(force) {
+  readyLoop = false;
+  try { await ensureAudio(force); }
+  catch (e) { show('scrCal'); $('calText').textContent = ''; calFail('Нет доступа к микрофону (' + e.name + ').', 'Включить снова', 'dead'); report('error', { stage: 'mic', name: e.name, message: String(e.message || '') + ' · ' + audioInfo() }); return; }
+  const ok = await calibrate(); if (ok) showReady();
+}
 function noteName(f) { const N = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']; const m = Math.round(69 + 12 * Math.log2(f / 440)); return N[(m % 12 + 12) % 12] + (Math.floor(m / 12) - 1); }
 let readyLoop = false;
 function showReady() {
@@ -695,12 +724,12 @@ async function begin(m, forceCal) {
   mode = m; $('startErr').textContent = '';
   try {
     if (m === 'voice') {
-      await initMic();
+      await ensureAudio();
     }
     if ($('optCam').checked) { const ok = await startCam(); if (!ok) toast('Камера недоступна'); } else stopCam();
   } catch (e) {
     $('startErr').textContent = 'Нет доступа к микрофону (' + e.name + '). Разреши микрофон или играй кнопками.';
-    report('error', { stage: 'mic', name: e.name, message: String(e.message || '') });
+    report('error', { stage: 'mic', name: e.name, message: String(e.message || '') + ' · ' + audioInfo() });
     return;
   }
   if (m === 'voice') { if (voice.calibrated && !forceCal) showReady(); else runCalibration(); } else startGame();
@@ -708,7 +737,7 @@ async function begin(m, forceCal) {
 $('goVoice').onclick = () => begin('voice');
 $('goRecal').onclick = () => begin('voice', true);
 $('goButtons').onclick = () => { if (btnLeft() > 0 || selLevel < maxLevel) begin('buttons'); };
-$('goPlay').onclick = () => startGame();
+$('goPlay').onclick = () => { ensureAudio().catch(() => {}); startGame(); };
 $('again').onclick = () => startGame(G ? G.level : selLevel);
 $('againWin').onclick = () => startGame(G ? G.level : selLevel);
 $('nextLvl').onclick = () => { const n = (G ? G.level : selLevel) + 1; if ($('nextLvl').dataset.voice) { running = false; clearObs(); G = null; selLevel = n; begin('voice'); } else startGame(n); };
@@ -717,7 +746,7 @@ $('recal').onclick = () => { running = false; clearObs(); G = null; runCalibrati
 $('recal2').onclick = () => { if (G) selLevel = G.level; running = false; paused = false; clearObs(); G = null; runCalibration(); };
 $('toMenu1').onclick = toMenu; $('toMenu2').onclick = toMenu;
 $('pauseBtn').onclick = () => { if (running) { paused = true; show('scrPause'); } };
-$('resume').onclick = () => { paused = false; show(null); last = performance.now(); if (ac && ac.state === 'suspended') ac.resume(); };
+$('resume').onclick = () => { paused = false; show(null); last = performance.now(); if (mode === 'voice') ensureAudio().catch(() => {}); };
 document.addEventListener('visibilitychange', () => { if (document.hidden && running && !paused) { paused = true; show('scrPause'); } });
 // buttons mode
 function bindHold(id, val) { const b = $(id); const on = e => { e.preventDefault(); ctrlState = val; }; const off = e => { e.preventDefault(); if (ctrlState === val) ctrlState = 'none'; };
