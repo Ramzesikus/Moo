@@ -230,15 +230,16 @@ function sampleFor(ms, onFrame) {
 function pct(a, q) { const b = a.slice().sort((x, y) => x - y); return b.length ? b[Math.min(b.length - 1, Math.max(0, Math.floor(q * (b.length - 1))))] : 0; }
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 // listen until voice starts, then record `dur` ms of pitches
-function listenPhase(dur) {
+function listenPhase(dur, needQuiet) {
   return new Promise(res => {
-    const fs = []; let started = false, t0 = 0; const tStart = performance.now();
+    const fs = []; let started = false, t0 = 0, quiet = needQuiet ? 0 : 99; const tStart = performance.now();
     (function step() {
       const now = performance.now(); const r = analyse();
-      if (r.f) { fs.push(r.f); if (!started) { started = true; t0 = now; } $('calVal').textContent = Math.round(r.f) + ' Гц'; }
+      if (!r.f) quiet++; else if (!started && quiet < 6) { quiet = 0; $('calVal').textContent = '✋ пауза'; requestAnimationFrame(step); return; }
+      if (r.f) { if (!started) { started = true; t0 = now; } if (now - t0 > 150) fs.push(r.f); $('calVal').textContent = Math.round(r.f) + ' Гц'; }
       else if (!started) $('calVal').textContent = '🎤';
       const p = started ? Math.min(1, (now - t0) / dur) : 0; $('calRing').style.setProperty('--p', p * 100 + '%');
-      if ((started && now - t0 > dur) || now - tStart > 10000) return res(fs);
+      if ((started && now - t0 > dur) || now - tStart > 12000) return res(fs);
       requestAnimationFrame(step);
     })();
   });
@@ -250,17 +251,17 @@ async function calibrate() {
   await sampleFor(1200, p => { an.getFloatTimeDomainData(raw); let s = 0; for (let i = 0; i < raw.length; i++) s += raw[i] * raw[i]; noise.push(Math.sqrt(s / raw.length)); $('calRing').style.setProperty('--p', Math.min(100, p * 100) + '%'); });
   voice.gate = Math.min(0.02, Math.max(0.006, median(noise) * 2.5));
   const fail = msg => { $('calErr').textContent = msg; $('calRetry').classList.remove('hidden'); return false; };
-  $('calTitle').textContent = 'Калибровка 2/4'; $('calText').innerHTML = 'Скажи обычное, спокойное<br><b>«Мууууу»</b> (2–3 секунды)';
-  const fN = await listenPhase(2500);
-  if (fN.length < 25) return fail('Не расслышала 🙉 Попробуй погромче и подольше.');
+  $('calTitle').textContent = 'Калибровка 2/4'; $('calText').innerHTML = 'Скажи обычное, спокойное<br><b>«Мууу»</b> (1 секунда)';
+  const fN = await listenPhase(1150);
+  if (fN.length < 15) return fail('Не расслышала 🙉 Попробуй погромче и подольше.');
   const base = median(fN);
-  $('calVal').textContent = '👍'; await wait(700);
-  $('calTitle').textContent = 'Калибровка 3/4'; $('calText').innerHTML = 'Теперь <b style="color:#3b6fd8">как можно НИЖЕ</b><br>«Мууууу» басом ⬇️';
-  const fL = await listenPhase(2500);
-  $('calVal').textContent = '👍'; await wait(700);
-  $('calTitle').textContent = 'Калибровка 4/4'; $('calText').innerHTML = 'А теперь <b style="color:#e2504a">как можно ВЫШЕ</b><br>«Мууууу» тонко ⬆️';
-  const fH = await listenPhase(2500);
-  if (fL.length < 15 || fH.length < 15) return fail('Не всё расслышала 🙉 Давай ещё раз.');
+  $('calVal').textContent = '👍'; await wait(600);
+  $('calTitle').textContent = 'Калибровка 3/4'; $('calText').innerHTML = 'Теперь <b style="color:#3b6fd8">как можно НИЖЕ</b><br>«Мууу» басом ⬇️ (1 сек)';
+  const fL = await listenPhase(1150, true);
+  $('calVal').textContent = '👍'; await wait(600);
+  $('calTitle').textContent = 'Калибровка 4/4'; $('calText').innerHTML = 'А теперь <b style="color:#e2504a">как можно ВЫШЕ</b><br>«Мууу» тонко ⬆️ (1 сек)';
+  const fH = await listenPhase(1150, true);
+  if (fL.length < 10 || fH.length < 10) return fail('Не всё расслышала 🙉 Давай ещё раз.');
   const sem = f => 12 * Math.log2(f / base);
   const lowS = -pct(fL.map(sem), 0.3), highS = pct(fH.map(sem), 0.7);
   voice.base = base; voice.lowRange = lowS; voice.highRange = highS;
