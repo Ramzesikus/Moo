@@ -46,6 +46,7 @@
   .btn.sec { background:#ece9e2; color:#2d2a32; }
   .btn.red { background:#e2504a; }
   .btn:disabled { opacity:.45; }
+  .lnk { display:block; margin:-2px auto 8px; background:none; border:0; color:#3b6fd8; font:inherit; font-size:15px; text-decoration:underline; padding:6px; }
   .badge { display:inline-block; min-width:24px; height:24px; line-height:24px; border-radius:12px; margin-left:8px; background:#3b6fd8; color:#fff; font-size:15px; vertical-align:1px; }
   .badge:empty { display:none; }
   .btn:disabled .badge { background:#8a8690; }
@@ -88,6 +89,7 @@
       <p class="small" id="lvInfo"></p>
       <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
       <button class="btn" id="goVoice">🎤 Играть голосом</button>
+      <button class="lnk hidden" id="goRecal">🎤 Перекалибровать голос</button>
       <button class="btn sec" id="goButtons">Играть кнопками<span id="btnBadge" class="badge"></span></button>
             <p class="small" id="verLine"></p>
       <div class="err" id="startErr"></div>
@@ -113,7 +115,7 @@
   </div>
 
   <div id="scrPause" class="screen hidden">
-    <div class="card"><h2>Пауза</h2><button class="btn" id="resume">Продолжить</button><button class="btn sec" id="toMenu1">В меню</button></div>
+    <div class="card"><h2>Пауза</h2><button class="btn" id="resume">Продолжить</button><button class="btn sec" id="recal2">Перекалибровать</button><button class="btn sec" id="toMenu1">В меню</button></div>
   </div>
 
   <div id="scrOver" class="screen hidden">
@@ -147,7 +149,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '10';
+const VERSION = '11';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -225,7 +227,9 @@ document.getElementById('lvNext').onclick = () => { if (selLevel < maxLevel) { s
 showLevelSel();
 // ================= UI HELPERS =================
 const $ = id => document.getElementById(id);
-function show(id) { for (const s of ['scrStart','scrCal','scrReady','scrPause','scrOver','scrWin']) $(s).classList.toggle('hidden', s !== id); }
+function show(id) { for (const s of ['scrStart','scrCal','scrReady','scrPause','scrOver','scrWin']) $(s).classList.toggle('hidden', s !== id);
+  if (id === 'scrStart') $('goRecal').classList.toggle('hidden', !voice.calibrated);
+  if (id === 'scrPause') $('recal2').classList.toggle('hidden', mode !== 'voice'); }
 let toastT = 0;
 function toast(t) { const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => el.style.opacity = 0, 700); }
 
@@ -687,7 +691,7 @@ function levelComplete() {
 function toMenu() { running = false; clearObs(); G = null; selLevel = Math.min(selLevel, maxLevel); showLevelSel(); show('scrStart'); $('hud').classList.add('hidden'); endUI(); }
 
 // ================= FLOW =================
-async function begin(m) {
+async function begin(m, forceCal) {
   mode = m; $('startErr').textContent = '';
   try {
     if (m === 'voice') {
@@ -699,9 +703,10 @@ async function begin(m) {
     report('error', { stage: 'mic', name: e.name, message: String(e.message || '') });
     return;
   }
-  if (m === 'voice') { if (voice.calibrated) showReady(); else runCalibration(); } else startGame();
+  if (m === 'voice') { if (voice.calibrated && !forceCal) showReady(); else runCalibration(); } else startGame();
 }
 $('goVoice').onclick = () => begin('voice');
+$('goRecal').onclick = () => begin('voice', true);
 $('goButtons').onclick = () => { if (btnLeft() > 0 || selLevel < maxLevel) begin('buttons'); };
 $('goPlay').onclick = () => startGame();
 $('again').onclick = () => startGame(G ? G.level : selLevel);
@@ -709,6 +714,7 @@ $('againWin').onclick = () => startGame(G ? G.level : selLevel);
 $('nextLvl').onclick = () => { const n = (G ? G.level : selLevel) + 1; if ($('nextLvl').dataset.voice) { running = false; clearObs(); G = null; selLevel = n; begin('voice'); } else startGame(n); };
 $('toMenu3').onclick = toMenu;
 $('recal').onclick = () => { running = false; clearObs(); G = null; runCalibration(); };
+$('recal2').onclick = () => { if (G) selLevel = G.level; running = false; paused = false; clearObs(); G = null; runCalibration(); };
 $('toMenu1').onclick = toMenu; $('toMenu2').onclick = toMenu;
 $('pauseBtn').onclick = () => { if (running) { paused = true; show('scrPause'); } };
 $('resume').onclick = () => { paused = false; show(null); last = performance.now(); if (ac && ac.state === 'suspended') ac.resume(); };
@@ -720,6 +726,7 @@ bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
 window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
 window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
 try { const c = JSON.parse(localStorage.getItem('moo_cal3') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.thrH = 3; voice.calibrated = true; } } catch(e){}
+$('goRecal').classList.toggle('hidden', !voice.calibrated);
 if (DEBUG) window.__moo = { get G() { return G; }, startGame: (n) => { mode = 'buttons'; startGame(n || 1); }, levelParams, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
 })();
 </script>
