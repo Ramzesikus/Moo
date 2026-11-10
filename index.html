@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Му-тест: микрофон</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg:#f4f2ec; --card:#fff; --tx:#2d2a32; --mut:#6b6a66; --acc:#3b6fd8; --red:#e2504a; --ok:#2e8b57; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--tx); }
+  main { max-width:520px; margin:0 auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+  h1 { font-size:20px; margin:4px 0; font-weight:600; }
+  .card { background:var(--card); border-radius:14px; padding:14px; box-shadow:0 1px 2px rgba(0,0,0,.06); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; }
+  button { font:inherit; font-size:16px; padding:12px 16px; border-radius:12px; border:0; background:var(--acc); color:#fff; flex:1; min-width:140px; }
+  button.sec { background:#e6e3db; color:var(--tx); }
+  button:disabled { opacity:.5; }
+  .big { font-size:44px; font-weight:700; line-height:1; }
+  .note { font-size:22px; color:var(--mut); margin-left:6px; }
+  .lvl { height:10px; background:#e6e3db; border-radius:5px; overflow:hidden; margin-top:10px; }
+  .lvl > div { height:100%; width:0; background:var(--ok); transition:width .05s; }
+  canvas { width:100%; height:140px; display:block; background:#faf9f6; border-radius:10px; margin-top:10px; }
+  video { width:100%; border-radius:10px; background:#000; display:none; margin-top:10px; transform:scaleX(-1); }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 10px; margin:0; font-size:14px; }
+  dt { color:var(--mut); } dd { margin:0; word-break:break-word; }
+  #log { font:12px/1.5 ui-monospace,Menlo,monospace; white-space:pre-wrap; max-height:220px; overflow:auto; background:#faf9f6; border-radius:10px; padding:8px; margin-top:8px; }
+  .st { font-size:14px; color:var(--mut); margin-top:6px; }
+  .bad { color:var(--red); } .good { color:var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🐮 Му-тест: микрофон и камера</h1>
+
+  <div class="card">
+    <div class="row">
+      <button id="micBtn">Включить микрофон</button>
+      <button id="camBtn" class="sec">Проверить камеру</button>
+    </div>
+    <div class="st" id="micState">Микрофон выключен. Нажми кнопку и помычи 🙂</div>
+  </div>
+
+  <div class="card">
+    <div><span class="big" id="hz">—</span><span class="note" id="nt"></span></div>
+    <div class="lvl"><div id="lvl"></div></div>
+    <canvas id="graph" width="1000" height="280"></canvas>
+    <div class="st">График: высота голоса за последние 6 секунд (полутона, нота по краю).</div>
+    <video id="cam" playsinline muted autoplay></video>
+  </div>
+
+  <div class="card">
+    <dl id="info"></dl>
+  </div>
+
+  <div class="card">
+    <div class="row"><button id="copyBtn" class="sec">Скопировать отчёт</button></div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const inTG = !!(tg && tg.initData !== undefined && tg.platform && tg.platform !== 'unknown');
+  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+
+  const $ = id => document.getElementById(id);
+  const logEl = $('log');
+  const lines = [];
+  function log(msg, cls) {
+    const t = new Date().toLocaleTimeString('ru-RU');
+    lines.push('[' + t + '] ' + msg);
+    const d = document.createElement('div'); d.textContent = '[' + t + '] ' + msg; if (cls) d.className = cls;
+    logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  const info = {
+    'Где открыто': inTG ? 'Telegram (' + tg.platform + ', версия API ' + tg.version + ')' : 'обычный браузер',
+    'Устройство': navigator.userAgent,
+    'HTTPS-контекст': String(window.isSecureContext),
+    'mediaDevices': String(!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
+    'AudioContext': String(!!(window.AudioContext || window.webkitAudioContext))
+  };
+  function renderInfo() { $('info').innerHTML = ''; for (const k in info) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = info[k]; $('info').append(dt, dd); } }
+  renderInfo();
+  log('Страница загружена. ' + info['Где открыто']);
+
+  // ---------- Pitch detection (YIN) ----------
+  function yin(buf, sr) {
+    const half = buf.length >> 1;
+    const tMin = Math.floor(sr / 1000), tMax = Math.min(half - 1, Math.floor(sr / 60));
+    const d = new Float32Array(tMax + 1);
+    for (let tau = 1; tau <= tMax; tau++) { let s = 0; for (let i = 0; i < half; i++) { const x = buf[i] - buf[i + tau]; s += x * x; } d[tau] = s; }
+    let run = 0, best = -1; const c = new Float32Array(tMax + 1); c[0] = 1;
+    for (let tau = 1; tau <= tMax; tau++) { run += d[tau]; c[tau] = run ? d[tau] * tau / run : 1; }
+    for (let tau = tMin; tau <= tMax; tau++) { if (c[tau] < 0.15) { while (tau + 1 <= tMax && c[tau + 1] < c[tau]) tau++; best = tau; break; } }
+    if (best < 0) return null;
+    const x0 = best > 1 ? c[best - 1] : c[best], x2 = best < tMax ? c[best + 1] : c[best];
+    const den = x0 + x2 - 2 * c[best];
+    const shift = den ? (x0 - x2) / (2 * den) : 0;
+    return { f: sr / (best + shift), clarity: 1 - c[best] };
+  }
+  const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  function noteOf(f) { const m = 69 + 12 * Math.log2(f / 440); const r = Math.round(m); return { name: NAMES[(r % 12 + 12) % 12] + (Math.floor(r / 12) - 1), cents: Math.round((m - r) * 100), midi: m }; }
+
+  // ---------- Mic ----------
+  let ac = null, stream = null, an = null, buf = null, running = false, hist = [], voicedFrames = 0, lastLog = 0;
+  async function startMic() {
+    $('micBtn').disabled = true;
+    $('micState').textContent = 'Запрашиваю доступ к микрофону…';
+    log('Запрос микрофона (getUserMedia audio)…');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const tr = stream.getAudioTracks()[0];
+      log('Микрофон разрешён: ' + (tr ? tr.label || 'без названия' : 'нет трека'), 'good');
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ac = new AC();
+      if (ac.state === 'suspended') await ac.resume();
+      const src = ac.createMediaStreamSource(stream);
+      an = ac.createAnalyser(); an.fftSize = 2048; src.connect(an);
+      buf = new Float32Array(an.fftSize);
+      info['Частота дискретизации'] = ac.sampleRate + ' Гц'; renderInfo();
+      running = true;
+      $('micState').innerHTML = '<span class="good">Микрофон работает.</span> Помычи низко и высоко.';
+      $('micBtn').textContent = 'Выключить микрофон'; $('micBtn').disabled = false;
+      tr && tr.addEventListener('ended', () => log('Трек микрофона завершился (ended)', 'bad'));
+      loop();
+    } catch (e) {
+      log('ОШИБКА микрофона: ' + e.name + ' — ' + e.message, 'bad');
+      $('micState').innerHTML = '<span class="bad">Не получилось: ' + e.name + '</span>';
+      $('micBtn').disabled = false;
+    }
+  }
+  function stopMic(reason) {
+    running = false;
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (ac) ac.close();
+    stream = null; ac = null;
+    $('micBtn').textContent = 'Включить микрофон';
+    $('micState').textContent = 'Микрофон выключен' + (reason ? ' (' + reason + ')' : '') + '.';
+    log('Микрофон выключен' + (reason ? ': ' + reason : ''));
+  }
+  $('micBtn').onclick = () => running ? stopMic() : startMic();
+  document.addEventListener('visibilitychange', () => { if (document.hidden && running) stopMic('приложение ушло в фон'); });
+
+  const g = $('graph'), gc = g.getContext('2d');
+  function draw() {
+    const W = g.width, H = g.height, now = performance.now();
+    gc.clearRect(0, 0, W, H);
+    const lo = 36, hi = 84; // C2..C6
+    const y = m => H - (m - lo) / (hi - lo) * H;
+    gc.font = '22px sans-serif'; gc.fillStyle = '#9a978f'; gc.strokeStyle = '#ebe8e1'; gc.lineWidth = 1;
+    for (let m = lo; m <= hi; m += 12) { gc.beginPath(); gc.moveTo(0, y(m)); gc.lineTo(W, y(m)); gc.stroke(); gc.fillText('C' + (m / 12 - 1), 6, y(m) - 4); }
+    gc.fillStyle = '#3b6fd8';
+    for (const p of hist) { const x = W - (now - p.t) / 6000 * W; if (x < 0) continue; gc.beginPath(); gc.arc(x, y(p.m), 4, 0, 6.3); gc.fill(); }
+  }
+  function loop() {
+    if (!running) return;
+    an.getFloatTimeDomainData(buf);
+    let rms = 0; for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i]; rms = Math.sqrt(rms / buf.length);
+    $('lvl').style.width = Math.min(100, rms * 400) + '%';
+    const now = performance.now();
+    let r = null;
+    if (rms > 0.01) r = yin(buf, ac.sampleRate);
+    if (r && r.clarity > 0.8 && r.f > 60 && r.f < 1000) {
+      const n = noteOf(r.f);
+      $('hz').textContent = Math.round(r.f) + ' Гц';
+      $('nt').textContent = n.name + (n.cents >= 0 ? ' +' : ' ') + n.cents + '¢';
+      hist.push({ t: now, m: n.midi });
+      voicedFrames++;
+      if (now - lastLog > 1500) { log('Голос: ' + Math.round(r.f) + ' Гц (' + n.name + '), громкость ' + rms.toFixed(3)); lastLog = now; }
+    }
+    hist = hist.filter(p => now - p.t < 6000);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  draw();
+
+  // ---------- Camera ----------
+  let camStream = null;
+  $('camBtn').onclick = async () => {
+    if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; $('cam').style.display = 'none'; $('camBtn').textContent = 'Проверить камеру'; log('Камера выключена'); return; }
+    log('Запрос камеры (getUserMedia video)…');
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      const v = $('cam'); v.srcObject = camStream; v.style.display = 'block'; await v.play().catch(() => {});
+      const tr = camStream.getVideoTracks()[0]; const s = tr.getSettings ? tr.getSettings() : {};
+      log('Камера разрешена: ' + (s.width || '?') + '×' + (s.height || '?'), 'good');
+      $('camBtn').textContent = 'Выключить камеру';
+    } catch (e) { log('ОШИБКА камеры: ' + e.name + ' — ' + e.message, 'bad'); camStream = null; }
+  };
+
+  // ---------- Report ----------
+  $('copyBtn').onclick = async () => {
+    const rep = Object.entries(info).map(([k, v]) => k + ': ' + v).join('\n') + '\nГолосовых кадров: ' + voicedFrames + '\n\n' + lines.join('\n');
+    try { await navigator.clipboard.writeText(rep); log('Отчёт скопирован — вставь его в чат с Claude', 'good'); }
+    catch (e) { log('Не удалось скопировать автоматически (' + e.name + '). Сделай скриншот этой страницы.', 'bad'); }
+  };
+})();
+</script>
+</body>
+</html>
