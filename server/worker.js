@@ -5,6 +5,7 @@
 //   BOT_TOKEN      — токен бота от @BotFather (тип: Secret)
 //   OWNER_CHAT_ID  — куда слать отчёты (твой chat_id). Пока не задан,
 //                    воркер сам пришлёт его тебе при первом открытии игры.
+// События: open (зашёл), level (прошёл уровень) — без звука; error — со звуком.
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -36,24 +37,16 @@ export default {
       return new Response('owner not configured', { headers: CORS });
     }
 
-    let text = null, silent = false;
+    let text = null, silent = true;
     if (p.event === 'open') {
-      text = '👋 ' + who + '\nоткрыл игру · ' + platform;
-      silent = true;
-    } else if (p.event === 'start') {
-      text = '▶️ ' + who + '\nначал забег · ' + (d.mode === 'voice' ? 'голосом' : 'кнопками') +
-        (d.camera ? ', камера вкл.' : ', без камеры') +
-        (d.mode === 'voice' ? ' · голос ' + d.base + ' Гц, порог ' + d.thr : '');
-      silent = true;
-    } else if (p.event === 'result') {
-      text = '🐮 ' + who + '\n🏁 ' + num(d.distance) + ' м за ' + fmtTime(d.seconds) +
-        ' · препятствий: ' + num(d.passed) +
-        '\n' + (d.mode === 'voice' ? '🎤 голосом' : '👆 кнопками') + (d.camera ? ' · 📷 камера' : '') +
-        ' · скорость до ' + d.maxSpeed + ' м/с' +
-        (d.isRecord ? '\n🏆 Личный рекорд!' : '\nРекорд игрока: ' + num(d.record) + ' м') +
-        ' · ' + platform;
+      text = '👋 ' + who + '\nзашёл в игру · ' + platform;
+    } else if (p.event === 'level') {
+      text = '🏁 ' + who + '\nпрошёл уровень ' + num(d.level) +
+        '\n' + (d.mode === 'voice' ? '🎤 голосом' : '👆 кнопками') + (d.camera ? ' · 📷 камера вкл.' : ' · камера выкл.') +
+        ' · ' + fmtTime(d.seconds) + ' · ❤️ ' + num(d.livesLeft) + '/' + num(d.livesTotal) + ' · ' + platform;
     } else if (p.event === 'error') {
       text = '⚠️ ' + who + '\nошибка на этапе «' + (d.stage || '?') + '»: ' + (d.name || '') + ' ' + (d.message || '') + ' · ' + platform;
+      silent = false;
     }
     if (text) await send(env.BOT_TOKEN, env.OWNER_CHAT_ID, text, silent);
     return new Response('ok', { headers: CORS });

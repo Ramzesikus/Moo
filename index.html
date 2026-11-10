@@ -53,6 +53,10 @@
   .ring span { width:96px; height:96px; border-radius:48px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
   .err { color:#c2413c; font-size:14px; min-height:18px; }
   #toast { position:absolute; left:50%; top:40%; transform:translate(-50%,-50%); font-size:34px; font-weight:800; color:#fff; text-shadow:0 2px 8px rgba(0,0,0,.35); opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+  .lvlsel { display:flex; align-items:center; justify-content:center; gap:16px; margin:12px 0 4px; }
+  .lvlsel button { width:46px; height:46px; border-radius:23px; border:0; background:#ece9e2; font-size:18px; color:#2d2a32; }
+  .lvlsel button:disabled { opacity:.3; }
+  .lvlsel .big { margin:0; }
   .legend { display:flex; gap:10px; justify-content:center; margin-top:10px; font-size:14px; }
   .legend span { padding:6px 10px; border-radius:10px; }
 </style>
@@ -65,7 +69,7 @@
   <div id="hud" class="hidden">
     <div id="micPill" class="pill top"><div id="micDot"></div><div id="micLbl">тишина</div></div>
     <button id="pauseBtn" class="top" aria-label="Пауза">⏸</button>
-    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️ 20</div></div>
+    <div id="stats" class="pill top"><div id="dist">0 м</div><div id="hearts">❤️</div></div>
     <div id="meter"><div class="zh" id="zh"></div><div class="zl" id="zl"></div><div id="mk"></div></div>
   </div>
   <div id="hint" class="hidden"><div id="hintRing"><div id="hintIn">—</div></div><div id="hintTxt">мычи</div></div>
@@ -77,11 +81,12 @@
       <h1>🐮 Му-раннер</h1>
       <p>Молчи — корова бежит.<br>Мычи <b style="color:#3b6fd8">обычным голосом</b> — пригибается под жердями.<br>Мычи <b style="color:#e2504a">высоко</b> — прыгает и парит над водой.</p>
       <p>Чем длиннее ручей или навес — тем дольше тяни «мууу».</p>
+      <div class="lvlsel"><button id="lvPrev" aria-label="Предыдущий уровень">◀</button><div><div class="small">Уровень</div><div class="big" id="lvNum">1</div></div><button id="lvNext" aria-label="Следующий уровень">▶</button></div>
+      <p class="small" id="lvInfo"></p>
       <div class="opt"><label for="optCam">Видео с фронтальной камеры</label><input type="checkbox" id="optCam" checked></div>
       <button class="btn" id="goVoice">🎤 Играть голосом</button>
       <button class="btn sec" id="goButtons">Играть кнопками</button>
-      <p id="recordLine" class="small"></p>
-      <p class="small" id="verLine"></p>
+            <p class="small" id="verLine"></p>
       <div class="err" id="startErr"></div>
     </div>
   </div>
@@ -116,13 +121,23 @@
 
   <div id="scrOver" class="screen hidden">
     <div class="card">
-      <h2>Корова устала 🐄</h2>
-      <div class="big" id="overDist">0 м</div>
+      <h2>Жизни кончились 🐄</h2>
+      <div class="big" id="overLvl">Уровень 1</div>
       <p id="overInfo"></p>
-      <p id="overRec" style="font-weight:600"></p>
       <button class="btn" id="again">Ещё раз</button>
       <button class="btn sec" id="recal">Перекалибровать</button>
       <button class="btn sec" id="toMenu2">В меню</button>
+    </div>
+  </div>
+
+  <div id="scrWin" class="screen hidden">
+    <div class="card">
+      <h2>Уровень пройден! 🎉</h2>
+      <div class="big" id="winLvl">Уровень 1</div>
+      <p id="winInfo"></p>
+      <button class="btn" id="nextLvl">Дальше</button>
+      <button class="btn sec" id="againWin">Пройти ещё раз</button>
+      <button class="btn sec" id="toMenu3">В меню</button>
     </div>
   </div>
 </div>
@@ -133,7 +148,7 @@
 // ================= CONFIG =================
 const REPORT_URL = 'https://moo-report.ramzesikus.workers.dev/';
 
-const VERSION = '4';
+const VERSION = '5';
 (function checkVersion() {
   try {
     fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.json()).then(j => {
@@ -164,21 +179,38 @@ function report(event, data) {
 }
 report('open', {});
 
-// ================= STORAGE =================
-let record = 0;
-try { record = +(localStorage.getItem('moo_record') || 0); } catch(e){}
-function saveRecord() {
-  try { localStorage.setItem('moo_record', String(record)); } catch(e){}
-  try { tg && tg.CloudStorage && tg.CloudStorage.setItem('moo_record', String(record)); } catch(e){}
+// ================= LEVELS =================
+function levelParams(N) {
+  const speed = N <= 20 ? Math.min(9, 3.5 + 0.35 * (N - 1)) : Math.min(11, 9 + 0.05 * (N - 20));
+  const length = Math.min(600, 150 + 30 * (N - 1)) + (N > 60 ? 10 * (N - 60) : 0);
+  const gap = Math.max(0.9, 2.6 - 0.12 * (N - 1));
+  const maxHold = Math.min(3.5, 0.8 + 0.2 * (N - 1));
+  const types = N === 1 ? ['fence', 'bar'] : N === 2 ? ['fence', 'bar', 'ditch'] : ['fence', 'bar', 'ditch', 'roof'];
+  const combo = N >= 6 ? Math.min(0.5, 0.05 * (N - 5)) : 0;
+  const lives = Math.max(3, Math.round(15 - 12 * (N - 1) / 19));
+  return { N, speed, length, gap, maxHold, types, combo, lives };
 }
-try { tg && tg.CloudStorage && tg.CloudStorage.getItem('moo_record', (err, v) => { if (!err && v && +v > record) { record = +v; showRecord(); } }); } catch(e){}
-function showRecord() { document.getElementById('recordLine').textContent = record ? 'Твой рекорд: ' + record + ' м' : ''; }
-showRecord();
-document.getElementById('verLine').textContent = 'версия ' + VERSION;
-
+let maxLevel = 1, selLevel = 1;
+try { maxLevel = Math.max(1, +(localStorage.getItem('moo_level') || 1)); } catch(e){}
+selLevel = maxLevel;
+function saveLevel() {
+  try { localStorage.setItem('moo_level', String(maxLevel)); } catch(e){}
+  try { tg && tg.CloudStorage && tg.CloudStorage.setItem('moo_level', String(maxLevel)); } catch(e){}
+}
+try { tg && tg.CloudStorage && tg.CloudStorage.getItem('moo_level', (err, v) => { if (!err && v && +v > maxLevel) { maxLevel = +v; selLevel = maxLevel; saveLevel(); showLevelSel(); } }); } catch(e){}
+function showLevelSel() {
+  const P = levelParams(selLevel);
+  document.getElementById('lvNum').textContent = selLevel;
+  document.getElementById('lvInfo').textContent = P.length + ' м · ' + String(Math.round(P.speed * 10) / 10).replace('.', ',') + ' м/с · ❤️ ' + P.lives + (maxLevel > 1 ? ' · открыто уровней: ' + maxLevel : '');
+  document.getElementById('lvPrev').disabled = selLevel <= 1;
+  document.getElementById('lvNext').disabled = selLevel >= maxLevel;
+}
+document.getElementById('lvPrev').onclick = () => { if (selLevel > 1) { selLevel--; showLevelSel(); } };
+document.getElementById('lvNext').onclick = () => { if (selLevel < maxLevel) { selLevel++; showLevelSel(); } };
+showLevelSel();
 // ================= UI HELPERS =================
 const $ = id => document.getElementById(id);
-function show(id) { for (const s of ['scrStart','scrCal','scrReady','scrPause','scrOver']) $(s).classList.toggle('hidden', s !== id); }
+function show(id) { for (const s of ['scrStart','scrCal','scrReady','scrPause','scrOver','scrWin']) $(s).classList.toggle('hidden', s !== id); }
 let toastT = 0;
 function toast(t) { const el = $('toast'); el.textContent = t; el.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => el.style.opacity = 0, 700); }
 
@@ -273,7 +305,7 @@ async function calibrate() {
     })();
   });
   if (fs.length < 15) { $('calErr').textContent = 'Не расслышала 🙉 Попробуй погромче.'; $('calRetry').classList.remove('hidden'); return false; }
-  voice.base = median(fs);
+  voice.base = median(fs); voice.calibrated = true;
   try { localStorage.setItem('moo_cal3', JSON.stringify({ base: voice.base, gate: voice.gate, thrH: voice.thrH })); } catch(e){}
   return true;
 }
@@ -404,6 +436,17 @@ function makeObs(type, len) {
   else if (type === 'roof') { const n = Math.max(2, Math.round(len / 2.2) + 1); for (let i = 0; i < n; i++) { const x = len * i / (n - 1); for (const s of [-1, 1]) part(postG, woodDM, g, [x, 0, s * (TW / 2 - 0.05)], [1, ROOF + 0.2, 1], 'obj'); } for (const s of [-1, 1]) part(new T.BoxGeometry(len + 0.3, 0.12, 0.12), woodDM, g, [len / 2, ROOF + 0.14, s * (TW / 2 - 0.05)], null, 'obj'); const nb = Math.max(2, Math.round(len / 0.75) + 1); for (let i = 0; i < nb; i++) part(new T.BoxGeometry(0.12, 0.1, TW + 0.3), woodM, g, [len * i / (nb - 1), ROOF + 0.05, 0], null, 'obj'); }
   scene.add(g); return g;
 }
+const flagC = document.createElement('canvas'); flagC.width = 256; flagC.height = 32; { const x = flagC.getContext('2d'); for (let i = 0; i < 32; i++) for (let j = 0; j < 4; j++) { x.fillStyle = (i + j) % 2 ? '#2d2a32' : '#ffffff'; x.fillRect(i * 8, j * 8, 8, 8); } }
+const flagT = new T.CanvasTexture(flagC); flagT.magFilter = T.NearestFilter;
+function makeFinish() {
+  const g = new T.Group();
+  for (const s of [-1, 1]) part(postG, toon('#e2504a'), g, [0, 0, s * (TW / 2 + 0.05)], [1.2, 2.3, 1.2], 'obj');
+  const ban = new T.Mesh(new T.BoxGeometry(0.08, 0.36, TW + 0.3), [toon('#2d2a32'), toon('#2d2a32'), toon('#2d2a32'), toon('#2d2a32'), new T.MeshToonMaterial({ map: flagT, gradientMap: gm }), new T.MeshToonMaterial({ map: flagT, gradientMap: gm })]);
+  ban.position.set(0, 2.1, 0); ban.renderOrder = 1; g.add(ban);
+  const ft = flagT.clone(); ft.needsUpdate = true; ft.wrapS = T.RepeatWrapping; ft.repeat.set(1, 1);
+  const line = new T.Mesh(new T.BoxGeometry(0.35, 0.012, TW), new T.MeshToonMaterial({ map: ft, gradientMap: gm })); line.position.set(0, 0.006, 0); line.renderOrder = -1; g.add(line);
+  scene.add(g); return g;
+}
 function disposeObs(g) { scene.remove(g); g.traverse(o => { if (o.geometry && o.geometry !== postG && o.geometry !== railG) o.geometry.dispose(); }); if (g.userData.wt) g.userData.wt.dispose(); }
 
 // ================= GAME =================
@@ -411,8 +454,9 @@ const dustG = new T.SphereGeometry(0.07, 8, 6);
 const JV = 3.8;
 let mode = 'voice', ctrlState = 'none';
 let G = null; // game state
-function newState() {
-  return { t: 0, speed: 4, dist: 0, lives: 20, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: 9, script: ['fence', 'bar', 'ditch', 'roof'], passed: 0, over: false, shake: 0, dust: [],
+function newState(N) {
+  const P = levelParams(N || 1);
+  return { P, level: P.N, t: 0, speed: P.speed, dist: 0, lives: P.lives, finish: false, inv: 0, kbT: 0, kbDist: 0, kbDone: 0, recover: 1, flash: 0, obs: [], nextSpawn: P.speed * 2.5, script: [], passed: 0, over: false, shake: 0, dust: [],
     y: 0, vy: 0, c: 0, cv: 0, air: 0, av: 0, tilt: 0, tv: 0, ph: 0, m: 0, mv: 0, ctl: 'none', glide: 0, bell: 0, bv: 0,
     tA: [0,0,0,0,0], tV: [0,0,0,0,0], tZ: [0,0,0,0,0], tZV: [0,0,0,0,0], look: 0, lookT: 4, hy: 0, hyv: 0, ears: [0, 0], earsV: [0, 0] };
 }
@@ -446,7 +490,7 @@ function collide(st) {
   if (st.kbT > 0) return;
   cow.updateMatrixWorld(true);
   for (const o of st.obs) {
-    if (o.hit || o.d > 1.4 || o.d + o.len < -1.4) continue;
+    if (o.type === 'finish' || o.hit || o.d > 1.4 || o.d + o.len < -1.4) continue;
     let hit = false;
     if (o.type === 'fence' || o.type === 'ditch') {
       const lo = o.type === 'fence' ? o.d - 0.1 : o.d + 0.05, hi = o.type === 'fence' ? o.d + 0.1 : o.d + o.len - 0.05, yl = o.type === 'fence' ? FENCE.rails[0] + 0.04 : 0.05;
@@ -478,30 +522,35 @@ function loseLife(st) {
 const KB_T = 0.9;
 const splashM = toon('#7cc8f0');
 function splash(st) { for (let i = 0; i < 10; i++) { const m = new T.Mesh(dustG, splashM); m.position.set(-0.2 + Math.random() * 0.8, 0.05, (Math.random() - 0.5) * 0.8); scene.add(m); st.dust.push({ m, l: 0.6, vx: -1 - Math.random() * 1.5, vy: 1.5 + Math.random() * 1.5 }); } }
-function renderHearts() { $('hearts').textContent = '❤️ ' + Math.max(0, G.lives); }
+function renderHearts() { $('hearts').textContent = '❤️ ' + Math.max(0, G.lives) + '/' + G.P.lives; }
 const DEBUG = location.hash === '#debug';
 let aiOn = false;
-function aiControl(st) { const ahead = st.obs.filter(o => o.d + o.len > -1.0).sort((a, b) => a.d - b.d)[0]; if (!ahead || st.kbT > 0) return 'none';
+function aiControl(st) { const ahead = st.obs.filter(o => o.type !== 'finish' && o.d + o.len > -1.0).sort((a, b) => a.d - b.d)[0]; if (!ahead || st.kbT > 0) return 'none';
   if (ahead.type === 'fence') { if (ahead.d < st.speed * 0.26 + 0.35 && ahead.d > -0.6) return 'high'; return 'none'; }
   if (ahead.type === 'ditch') { if (ahead.d < st.speed * 0.2 + 0.55 && ahead.d + ahead.len > -0.75 * S - 0.1) return 'high'; return 'none'; }
   return (ahead.d < st.speed * 0.4 + 0.9 && ahead.d + ahead.len > -0.95) ? 'low' : 'none'; }
 function control() { if (aiOn && G) return aiControl(G); return mode === 'voice' ? voice.state : ctrlState; }
 function update(st, dt) {
-  st.t += dt; st.speed = Math.min(8, 4 + st.t * 4 / 180);
+  st.t += dt;
   if (st.inv > 0) st.inv -= dt; if (st.shake > 0) st.shake -= dt;
   let move;
   if (st.kbT > 0) { st.kbT -= dt; const p = Math.min(1, 1 - st.kbT / KB_T); const sft = st.kbDist * (1 - (1 - p) * (1 - p)); move = -(sft - st.kbDone); st.kbDone = sft; if (st.kbT <= 0) { st.kbT = 0; for (const o of st.obs) o.hit = 0; } }
   else { st.recover = Math.min(1, st.recover + dt / 0.9); move = st.speed * st.recover * dt; }
   st.dist = Math.max(0, st.dist + move); grassT.offset.x = (st.dist / TL * 16) % 1;
   st.nextSpawn -= move;
-  if (st.nextSpawn <= 0) {
-    let type; if (st.script.length) type = st.script.shift(); else { const r = Math.random(); type = r < 0.25 ? 'fence' : r < 0.5 ? 'ditch' : r < 0.75 ? 'bar' : 'roof'; }
-    const early = st.t < 40;
-    const len = (type === 'ditch' || type === 'roof') ? st.speed * (early ? 0.6 + Math.random() * 0.6 : 0.5 + Math.random() * 2.2) : 0;
+  const P = st.P;
+  if (st.nextSpawn <= 0 && st.dist + 30 < P.length - 6) {
+    const type = P.types[Math.floor(Math.random() * P.types.length)];
+    const hold = 0.5 + Math.random() * Math.max(0, P.maxHold - 0.5);
+    let len = (type === 'ditch' || type === 'roof') ? st.speed * hold : 0;
+    len = Math.min(len, Math.max(0, P.length - 6 - (st.dist + 30)));
     st.obs.push({ d: 30, len, type, g: makeObs(type, len) });
-    st.nextSpawn = len + st.speed * (1.7 + Math.random() * 1.2 + Math.max(0, 1.5 - st.t / 30));
+    const combo = Math.random() < P.combo;
+    st.nextSpawn = len + st.speed * (combo ? Math.max(0.7, P.gap * 0.5) : P.gap * (0.9 + Math.random() * 0.4));
   }
-  for (const o of st.obs) { o.d -= move; if (o.g.userData.wt) o.g.userData.wt.offset.y = (st.t * 0.25) % 1; if (!o.counted && o.d + o.len < -1.2) { o.counted = 1; st.passed++; } }
+  if (!st.finish && P.length - st.dist < 30) { st.finish = true; st.obs.push({ d: P.length - st.dist, len: 0, type: 'finish', g: makeFinish() }); }
+  if (st.dist >= P.length) { levelComplete(); return; }
+  for (const o of st.obs) { o.d -= move; if (o.g.userData.wt) o.g.userData.wt.offset.y = (st.t * 0.25) % 1; if (!o.counted && o.type !== 'finish' && o.d + o.len < -1.2) { o.counted = 1; st.passed++; } }
   for (const o of st.obs) if (o.d + o.len < -9) { disposeObs(o.g); o.dead = 1; } st.obs = st.obs.filter(o => !o.dead);
   const ctl = control(); st.ctl = ctl;
   const grounded = st.y <= 0 && st.vy <= 0;
@@ -538,7 +587,7 @@ function render() {
   const sh = st.shake > 0 ? st.shake * 0.25 : 0;
   cam.position.set(camBase.x + (Math.random() - 0.5) * sh, camBase.y + camY + (Math.random() - 0.5) * sh, camBase.z);
   cam.lookAt(lookBase.x, lookBase.y + camY, lookBase.z); R.render(scene, cam);
-  if (G) { $('dist').textContent = Math.floor(G.dist) + ' м'; updateNote(); }
+  if (G) { $('dist').textContent = 'Ур. ' + G.level + ' · ' + Math.min(G.P.length, Math.floor(G.dist)) + '/' + G.P.length + ' м'; updateNote(); }
 }
 // idle cow on menu
 const idleState = newState();
@@ -554,25 +603,33 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 
-function startGame() {
-  readyLoop = false; clearObs(); G = newState(); idleState.y = 0;
+function startGame(N) {
+  if (N) selLevel = N;
+  readyLoop = false; clearObs(); G = newState(selLevel); idleState.y = 0;
   running = true; paused = false; show(null);
-  $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice'); $('hint').classList.toggle('hidden', mode !== 'voice'); 
-  renderHearts(); last = performance.now();
-  report('start', { mode, camera: !!camStream, base: Math.round(voice.base), thr: fmtT(voice.thrH) });
+  $('hud').classList.remove('hidden'); $('ctrl').classList.toggle('hidden', mode !== 'buttons'); $('meter').classList.toggle('hidden', mode !== 'voice'); $('hint').classList.toggle('hidden', mode !== 'voice');
+  renderHearts(); last = performance.now(); toast('Уровень ' + selLevel);
 }
+function fmtSec(s) { s = Math.round(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function endUI() { $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden'); }
 function gameOver() {
   G.over = true; running = false; haptic('heavy');
-  const d = Math.floor(G.dist), secs = Math.round(G.t);
-  const isRec = d > record; if (isRec) { record = d; saveRecord(); }
-  $('overDist').textContent = d + ' м';
-  $('overInfo').textContent = 'Время ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') + ' · препятствий пройдено: ' + G.passed;
-  $('overRec').textContent = isRec ? '🏆 Новый рекорд!' : 'Рекорд: ' + record + ' м';
+  $('overLvl').textContent = 'Уровень ' + G.level;
+  $('overInfo').textContent = 'Пробежала ' + Math.floor(G.dist) + ' из ' + G.P.length + ' м · ' + fmtSec(G.t);
   $('recal').classList.toggle('hidden', mode !== 'voice');
-  show('scrOver'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden');
-  report('result', { distance: d, seconds: secs, passed: G.passed, mode, camera: !!camStream, record, isRecord: isRec, base: Math.round(voice.base), thr: fmtT(voice.thrH), maxSpeed: +G.speed.toFixed(1) });
+  show('scrOver'); endUI();
 }
-function toMenu() { running = false; clearObs(); G = null; show('scrStart'); showRecord(); $('hud').classList.add('hidden'); $('ctrl').classList.add('hidden'); $('hint').classList.add('hidden'); }
+function levelComplete() {
+  G.over = true; running = false; try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch(e){}
+  const N = G.level;
+  if (N >= maxLevel) { maxLevel = N + 1; saveLevel(); }
+  $('winLvl').textContent = 'Уровень ' + N;
+  $('winInfo').textContent = 'Время ' + fmtSec(G.t) + ' · жизней осталось ' + G.lives + ' из ' + G.P.lives;
+  $('nextLvl').textContent = 'Дальше: уровень ' + (N + 1);
+  show('scrWin'); endUI();
+  report('level', { level: N, mode, camera: !!camStream, seconds: Math.round(G.t), livesLeft: G.lives, livesTotal: G.P.lives });
+}
+function toMenu() { running = false; clearObs(); G = null; selLevel = Math.min(selLevel, maxLevel); showLevelSel(); show('scrStart'); $('hud').classList.add('hidden'); endUI(); }
 
 // ================= FLOW =================
 async function begin(m) {
@@ -587,12 +644,15 @@ async function begin(m) {
     report('error', { stage: 'mic', name: e.name, message: String(e.message || '') });
     return;
   }
-  if (m === 'voice') runCalibration(); else startGame();
+  if (m === 'voice') { if (voice.calibrated) showReady(); else runCalibration(); } else startGame();
 }
 $('goVoice').onclick = () => begin('voice');
 $('goButtons').onclick = () => begin('buttons');
 $('goPlay').onclick = () => startGame();
-$('again').onclick = () => startGame();
+$('again').onclick = () => startGame(G ? G.level : selLevel);
+$('againWin').onclick = () => startGame(G ? G.level : selLevel);
+$('nextLvl').onclick = () => startGame((G ? G.level : selLevel) + 1);
+$('toMenu3').onclick = toMenu;
 $('recal').onclick = () => { running = false; clearObs(); G = null; runCalibration(); };
 $('toMenu1').onclick = toMenu; $('toMenu2').onclick = toMenu;
 $('pauseBtn').onclick = () => { if (running) { paused = true; show('scrPause'); } };
@@ -604,8 +664,8 @@ function bindHold(id, val) { const b = $(id); const on = e => { e.preventDefault
 bindHold('btnHigh', 'high'); bindHold('btnLow', 'low');
 window.addEventListener('keydown', e => { if (e.key === 'ArrowUp' || e.key === 'w') ctrlState = 'high'; if (e.key === 'ArrowDown' || e.key === 's') ctrlState = 'low'; });
 window.addEventListener('keyup', e => { if ((e.key === 'ArrowUp' || e.key === 'w') && ctrlState === 'high') ctrlState = 'none'; if ((e.key === 'ArrowDown' || e.key === 's') && ctrlState === 'low') ctrlState = 'none'; });
-try { const c = JSON.parse(localStorage.getItem('moo_cal3') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.thrH = c.thrH || 3; } } catch(e){}
-if (DEBUG) window.__moo = { get G() { return G; }, startGame: () => { mode = 'buttons'; startGame(); }, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
+try { const c = JSON.parse(localStorage.getItem('moo_cal3') || 'null'); if (c && c.base > 50) { voice.base = c.base; voice.gate = c.gate; voice.thrH = c.thrH || 3; voice.calibrated = true; } } catch(e){}
+if (DEBUG) window.__moo = { get G() { return G; }, startGame: (n) => { mode = 'buttons'; startGame(n || 1); }, levelParams, ai: v => aiOn = v, step: (n, dt) => { for (let i = 0; i < n; i++) { if (!G || G.over) break; update(G, dt); } }, hitAt: () => damage(G, G.obs[0] || { type: 'fence', d: 0 }), hooves: () => { cow.updateMatrixWorld(true); return U.legs.map(l => { hoofPos(l, _v); return [+_v.x.toFixed(2), +_v.y.toFixed(2)]; }); } };
 })();
 </script>
 </body>
